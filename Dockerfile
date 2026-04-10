@@ -29,5 +29,7 @@ USER appuser
 # Bun executa TypeScript nativamente — sem etapa de compilação
 ENV NODE_ENV=production
 
+EXPOSE 3000
+
 # Sinalização de saída é tratada em src/index.ts (SIGTERM / SIGINT)
 CMD ["bun", "run", "src/index.ts"]

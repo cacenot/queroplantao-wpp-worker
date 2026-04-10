@@ -1,4 +1,5 @@
 import { env } from "./config/env.ts";
+import { startHttpServer } from "./http/server.ts";
 import { createJobHandler } from "./jobs/handler.ts";
 import { connectAmqp } from "./lib/amqp.ts";
 import { logger } from "./lib/logger.ts";
@@ -23,14 +24,17 @@ async function main() {
 
   logger.info({ queue: env.AMQP_QUEUE }, "Worker ativo — aguardando jobs");
 
-  // Graceful shutdown: fecha channel e connection antes de encerrar o processo
+  const httpServer = startHttpServer(channel);
+
+  // Graceful shutdown: fecha HTTP server, channel e connection antes de encerrar o processo
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando worker");
     try {
+      httpServer.stop();
       await channel.close();
       await connection.close();
     } catch (err) {
-      logger.warn({ err }, "Erro ao fechar conexão AMQP durante shutdown");
+      logger.warn({ err }, "Erro ao fechar conexões durante shutdown");
     }
     process.exit(0);
   }

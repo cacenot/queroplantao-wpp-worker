@@ -41,6 +41,10 @@ const envSchema = z.object({
   // Delay aleatório (ms) entre requisições — cria jitter para evitar rajadas
   ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(500),
   ZAPI_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(1800),
+
+  // Servidor HTTP para receber tasks via API (0 = porta aleatória, útil em testes)
+  HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),
+  HTTP_API_KEY: z.string().min(1, { message: "HTTP_API_KEY é obrigatória" }),
 });
 
 function parseEnv() {
