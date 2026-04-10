@@ -35,13 +35,13 @@ interface HealthResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeChannel() {
+function makePublisher() {
   return {
-    sendToQueue: mock((_queue: string, _buffer: Buffer, _options: { persistent: boolean }) => true),
+    send: mock((_envelope: unknown, _body: unknown) => Promise.resolve()),
   };
 }
 
-type MockChannel = ReturnType<typeof makeChannel>;
+type MockPublisher = ReturnType<typeof makePublisher>;
 
 function makeDeleteMessageJob(id = "job-1") {
   return {
@@ -85,13 +85,13 @@ async function readJson<T>(res: Response): Promise<T> {
 // ---------------------------------------------------------------------------
 
 let server: ReturnType<typeof Bun.serve>;
-let channel: MockChannel;
+let publisher: MockPublisher;
 let baseUrl: string;
 
 beforeAll(() => {
-  channel = makeChannel();
-  // biome-ignore lint/suspicious/noExplicitAny: mock de canal AMQP para testes
-  server = startHttpServer(channel as any);
+  publisher = makePublisher();
+  // biome-ignore lint/suspicious/noExplicitAny: mock de publisher AMQP para testes
+  server = startHttpServer(publisher as any);
   baseUrl = `http://localhost:${server.port}`;
 });
 
@@ -181,7 +181,7 @@ describe("POST /tasks", () => {
 
   describe("happy path", () => {
     it("202 e publica cada job na fila AMQP para batch válido", async () => {
-      channel.sendToQueue.mockClear();
+      publisher.send.mockClear();
       const jobs = [makeDeleteMessageJob("hp-1"), makeDeleteMessageJob("hp-2")];
 
       const res = await postTasks(baseUrl, jobs);
@@ -189,22 +189,22 @@ describe("POST /tasks", () => {
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
       expect(data.accepted).toBe(2);
-      expect(channel.sendToQueue).toHaveBeenCalledTimes(2);
+      expect(publisher.send).toHaveBeenCalledTimes(2);
     });
 
     it("202 para batch com um único job", async () => {
-      channel.sendToQueue.mockClear();
+      publisher.send.mockClear();
 
       const res = await postTasks(baseUrl, [makeDeleteMessageJob()]);
 
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
       expect(data.accepted).toBe(1);
-      expect(channel.sendToQueue).toHaveBeenCalledTimes(1);
+      expect(publisher.send).toHaveBeenCalledTimes(1);
     });
 
     it("202 para batch misto (delete_message + remove_participant)", async () => {
-      channel.sendToQueue.mockClear();
+      publisher.send.mockClear();
       const jobs = [makeDeleteMessageJob("mix-1"), makeRemoveParticipantJob("mix-2")];
 
       const res = await postTasks(baseUrl, jobs);
@@ -214,22 +214,21 @@ describe("POST /tasks", () => {
       expect(data.accepted).toBe(2);
     });
 
-    it("publica cada job como JSON na fila correta com persistent=true", async () => {
-      channel.sendToQueue.mockClear();
+    it("publica cada job na fila correta com deliveryMode persistente", async () => {
+      publisher.send.mockClear();
       const job = makeDeleteMessageJob("persist-1");
 
       await postTasks(baseUrl, [job]);
 
-      expect(channel.sendToQueue).toHaveBeenCalledTimes(1);
+      expect(publisher.send).toHaveBeenCalledTimes(1);
 
-      const firstCall = channel.sendToQueue.mock.calls[0];
+      const firstCall = publisher.send.mock.calls[0];
       expect(firstCall).toBeDefined();
-      if (!firstCall) throw new Error("sendToQueue should have at least one call");
+      if (!firstCall) throw new Error("send should have at least one call");
 
-      const [queue, buffer, options] = firstCall;
-      expect(queue).toBe("test-queue");
-      expect(JSON.parse(buffer.toString())).toEqual(job);
-      expect(options).toEqual({ persistent: true });
+      const [envelope, body] = firstCall;
+      expect(envelope).toEqual({ routingKey: "test-queue", durable: true });
+      expect(body).toEqual(job);
     });
   });
 });

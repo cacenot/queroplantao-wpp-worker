@@ -1,5 +1,5 @@
 import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
-import type amqplib from "amqplib";
+import type { Publisher } from "rabbitmq-client";
 import { z } from "zod";
 import { env } from "../config/env.ts";
 import { jobSchema } from "../jobs/schemas.ts";
@@ -86,7 +86,7 @@ async function parseJsonBodyWithLimit(req: Request): Promise<BodyParseResult> {
   }
 }
 
-async function handleTasks(req: Request, channel: amqplib.Channel): Promise<Response> {
+async function handleTasks(req: Request, publisher: Publisher): Promise<Response> {
   // Validate headers
   const rawHeaders = { "x-api-key": req.headers.get("x-api-key") ?? "" };
   const headersResult = postTasksHeadersSchema.safeParse(rawHeaders);
@@ -114,12 +114,7 @@ async function handleTasks(req: Request, channel: amqplib.Channel): Promise<Resp
 
   // Publish each job to AMQP
   for (const job of jobs) {
-    const buffer = Buffer.from(JSON.stringify(job));
-    const sent = channel.sendToQueue(env.AMQP_QUEUE, buffer, { persistent: true });
-
-    if (!sent) {
-      logger.warn({ jobId: job.id }, "AMQP backpressure — sendToQueue retornou false");
-    }
+    await publisher.send({ routingKey: env.AMQP_QUEUE, durable: true }, job);
   }
 
   logger.info({ count: jobs.length }, "Batch de jobs publicado via HTTP");
@@ -127,7 +122,7 @@ async function handleTasks(req: Request, channel: amqplib.Channel): Promise<Resp
   return json({ accepted: jobs.length }, 202);
 }
 
-export function startHttpServer(channel: amqplib.Channel): ReturnType<typeof Bun.serve> {
+export function startHttpServer(publisher: Publisher): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port: env.HTTP_PORT,
 
@@ -140,7 +135,7 @@ export function startHttpServer(channel: amqplib.Channel): ReturnType<typeof Bun
 
       if (url.pathname === "/tasks" && req.method === "POST") {
         try {
-          return await handleTasks(req, channel);
+          return await handleTasks(req, publisher);
         } catch (err) {
           logger.error({ err }, "Erro inesperado ao processar POST /tasks");
           return json({ error: "Internal server error" }, 500);
