@@ -198,5 +198,49 @@ Resposta:
 ## Observacoes operacionais
 
 - Cada job do batch e publicado individualmente na fila com `persistent: true`.
+
+## Desenvolvimento local
+
+### Pré-requisitos
+
+- [Docker](https://docs.docker.com/get-docker/) e Docker Compose
+- [Bun](https://bun.sh/)
+
+### Subindo o broker AMQP (LavinMQ)
+
+```bash
+docker compose up -d
+```
+
+Isso inicia o LavinMQ com:
+
+- **AMQP**: `amqp://guest:guest@localhost:5672`
+- **Management UI**: `http://localhost:15672` (user: `guest`, password: `guest`)
+
+### Executando o worker
+
+```bash
+export AMQP_URL=amqp://guest:guest@localhost:5672
+export AMQP_QUEUE=tasks
+export ZAPI_BASE_URL=https://api.z-api.io
+export ZAPI_INSTANCES='[{"instance_id":"i1","instance_token":"t1","client_token":"c1"}]'
+export HTTP_API_KEY=dev-secret
+
+bun run src/index.ts
+```
+
+### Executando os testes
+
+```bash
+bun test
+```
+
+## Validação
+
+Toda a validação de request é feita com [zod](https://zod.dev/):
+
+- **Headers**: `x-api-key` validado como string não vazia via schema zod, seguido de comparação timing-safe contra `HTTP_API_KEY`
+- **Body**: array de jobs validado via `z.discriminatedUnion` pelo campo `type`
+- **Limites**: 1-1000 jobs por batch, payload máximo de 2 MB
 - Se `sendToQueue` reportar backpressure (`false`), um warning e logado.
 - O endpoint continua retornando `202` quando o batch e aceito.
