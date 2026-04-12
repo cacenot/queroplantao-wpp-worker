@@ -2,6 +2,7 @@ import { env } from "./config/env.ts";
 import { startHttpServer } from "./http/server.ts";
 import { createJobHandler } from "./jobs/handler.ts";
 import { createAmqpConnection } from "./lib/amqp.ts";
+import { createDbConnection } from "./lib/db.ts";
 import { logger } from "./lib/logger.ts";
 import { ZApiGateway } from "./zapi/gateway.ts";
 
@@ -16,8 +17,9 @@ async function main() {
   });
 
   const rabbit = createAmqpConnection();
+  const sql = createDbConnection();
 
-  const handleMessage = createJobHandler(gateway);
+  const handleMessage = createJobHandler(gateway, sql);
 
   const consumer = rabbit.createConsumer(
     {
@@ -49,6 +51,7 @@ async function main() {
       await publisher.close();
       await consumer.close();
       await rabbit.close();
+      await sql.end();
     } catch (err) {
       logger.warn({ err }, "Erro ao fechar conexões durante shutdown");
     }

@@ -28,6 +28,8 @@ const zapiInstancesSchema = z
   );
 
 const envSchema = z.object({
+  DATABASE_URL: z.string().min(1, { message: "DATABASE_URL é obrigatória" }),
+
   AMQP_URL: z.string().url({ message: "AMQP_URL deve ser uma URL válida" }),
   AMQP_QUEUE: z.string().min(1),
   AMQP_PREFETCH: z.coerce.number().int().positive().default(5),
@@ -45,6 +47,11 @@ const envSchema = z.object({
   // Servidor HTTP para receber tasks via API (0 = porta aleatória, útil em testes)
   HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),
   HTTP_API_KEY: z.string().min(1, { message: "HTTP_API_KEY é obrigatória" }),
+
+  // spam-watcher: lista de filtros separados por vírgula (opcional — só usado pelo script)
+  SPAM_FILTERS: z.string().optional(),
+  // spam-watcher: intervalo entre execuções em ms (default: 2 min)
+  SPAM_INTERVAL_MS: z.coerce.number().int().positive().default(120000),
 });
 
 function parseEnv() {

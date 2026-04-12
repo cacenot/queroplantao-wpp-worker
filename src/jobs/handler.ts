@@ -2,6 +2,7 @@ import { ConsumerStatus } from "rabbitmq-client";
 import type { AsyncMessage } from "rabbitmq-client";
 import { deleteMessage } from "../actions/delete-message.ts";
 import { removeParticipant } from "../actions/remove-participant.ts";
+import type { Sql } from "../lib/db.ts";
 import { logger } from "../lib/logger.ts";
 import { getOrCreateQueue } from "../queues/target-queue.ts";
 import type { ZApiGateway } from "../zapi/gateway.ts";
@@ -17,7 +18,7 @@ import { jobSchema } from "./schemas.ts";
  * - void (implícito) → ACK
  * - ConsumerStatus.DROP → nack sem requeue (mensagem descartada ou enviada à DLX)
  */
-export function createJobHandler(gateway: ZApiGateway) {
+export function createJobHandler(gateway: ZApiGateway, sql: Sql) {
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Validação com zod (msg.body já é o JSON parseado pelo rabbitmq-client)
     const parseResult = jobSchema.safeParse(msg.body);
@@ -43,7 +44,7 @@ export function createJobHandler(gateway: ZApiGateway) {
         // 4. Roteamento por tipo de job — cada action usa o gateway internamente
         switch (job.type) {
           case "delete_message":
-            await deleteMessage(job.payload, gateway);
+            await deleteMessage(job.payload, gateway, sql);
             break;
           case "remove_participant":
             await removeParticipant(job.payload, gateway);
