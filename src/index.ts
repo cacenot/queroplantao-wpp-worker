@@ -1,9 +1,12 @@
+import { createModel } from "./ai/model.ts";
+import { classifyMessage } from "./ai/moderator.ts";
 import { env } from "./config/env.ts";
 import { startHttpServer } from "./http/server.ts";
 import { createJobHandler } from "./jobs/handler.ts";
 import { createAmqpConnection } from "./lib/amqp.ts";
 import { createDbConnection } from "./lib/db.ts";
 import { logger } from "./lib/logger.ts";
+import { QpAdminApiClient } from "./lib/qp-admin-api.ts";
 import { ZApiGateway } from "./zapi/gateway.ts";
 
 async function main() {
@@ -19,7 +22,15 @@ async function main() {
   const rabbit = createAmqpConnection();
   const sql = createDbConnection();
 
-  const handleMessage = createJobHandler(gateway, sql);
+  const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
+  const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
+
+  const handleMessage = createJobHandler(
+    gateway,
+    sql,
+    (text) => classifyMessage(text, analyzeMessageModel),
+    adminApi
+  );
 
   const consumer = rabbit.createConsumer(
     {

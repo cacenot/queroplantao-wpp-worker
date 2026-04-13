@@ -1,12 +1,17 @@
 import { ConsumerStatus } from "rabbitmq-client";
 import type { AsyncMessage } from "rabbitmq-client";
+import type { MessageAnalysis } from "../ai/moderator.ts";
+import { analyzeMessage } from "../actions/analyze-message.ts";
 import { deleteMessage } from "../actions/delete-message.ts";
 import { removeParticipant } from "../actions/remove-participant.ts";
 import type { Sql } from "../lib/db.ts";
 import { logger } from "../lib/logger.ts";
+import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import { getOrCreateQueue } from "../queues/target-queue.ts";
 import type { ZApiGateway } from "../zapi/gateway.ts";
 import { jobSchema } from "./schemas.ts";
+
+type ClassifyFn = (text: string) => Promise<MessageAnalysis>;
 
 /**
  * Cria o handler principal de mensagens AMQP.
@@ -18,7 +23,12 @@ import { jobSchema } from "./schemas.ts";
  * - void (implícito) → ACK
  * - ConsumerStatus.DROP → nack sem requeue (mensagem descartada ou enviada à DLX)
  */
-export function createJobHandler(gateway: ZApiGateway, sql: Sql) {
+export function createJobHandler(
+  gateway: ZApiGateway,
+  sql: Sql,
+  classifyMessage: ClassifyFn,
+  adminApi: QpAdminApiClient
+) {
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Validação com zod (msg.body já é o JSON parseado pelo rabbitmq-client)
     const parseResult = jobSchema.safeParse(msg.body);
@@ -48,6 +58,9 @@ export function createJobHandler(gateway: ZApiGateway, sql: Sql) {
             break;
           case "remove_participant":
             await removeParticipant(job.payload, gateway);
+            break;
+          case "analyze_message":
+            await analyzeMessage(job.payload, classifyMessage, adminApi);
             break;
         }
 

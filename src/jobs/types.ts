@@ -9,6 +9,11 @@ export interface RemoveParticipantPayload {
   phones: string[];
 }
 
+export interface AnalyzeMessagePayload {
+  hash: string;
+  text: string;
+}
+
 // Discriminated union — cada tipo de job carrega seu payload específico
 export type Job =
   | {
@@ -24,6 +29,14 @@ export type Job =
       type: "remove_participant";
       targetKey: string;
       payload: RemoveParticipantPayload;
+      createdAt: string;
+      attempt?: number;
+    }
+  | {
+      id: string;
+      type: "analyze_message";
+      targetKey: string;
+      payload: AnalyzeMessagePayload;
       createdAt: string;
       attempt?: number;
     };

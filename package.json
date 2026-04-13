@@ -16,6 +16,10 @@
     "spam-watcher": "bun run src/scripts/spam-watcher.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.69",
+    "@ai-sdk/google": "^3.0.62",
+    "@ai-sdk/openai": "^3.0.52",
+    "ai": "^6.0.158",
     "p-queue": "^8.0.1",
     "pino": "^9.5.0",
     "postgres": "^3.4.9",

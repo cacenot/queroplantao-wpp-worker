@@ -48,6 +48,18 @@ const envSchema = z.object({
   HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),
   HTTP_API_KEY: z.string().min(1, { message: "HTTP_API_KEY é obrigatória" }),
 
+  // QP Admin API — usada para persistir resultados de análise de mensagens
+  QP_ADMIN_API_URL: z.string().url({ message: "QP_ADMIN_API_URL deve ser uma URL válida" }),
+  QP_ADMIN_API_TOKEN: z.string().min(1, { message: "QP_ADMIN_API_TOKEN é obrigatória" }),
+
+  // AI — chaves de API (opcionais — apenas a do provider ativo precisa estar definida)
+  OPENAI_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+
+  // AI — modelo por action (formato: "provider/model-name")
+  AI_MODEL_ANALYZE_MESSAGE: z.string().min(1).default("openai/gpt-4o-mini"),
+
   // spam-watcher: lista de filtros separados por vírgula (opcional — só usado pelo script)
   SPAM_FILTERS: z.string().optional(),
   // spam-watcher: intervalo entre execuções em ms (default: 2 min)
