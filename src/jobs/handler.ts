@@ -27,7 +27,8 @@ export function createJobHandler(
   gateway: ZApiGateway,
   sql: Sql,
   classifyMessage: ClassifyFn,
-  adminApi: QpAdminApiClient
+  adminApi: QpAdminApiClient,
+  onSuccess?: () => void
 ) {
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Validação com zod (msg.body já é o JSON parseado pelo rabbitmq-client)
@@ -65,6 +66,7 @@ export function createJobHandler(
         }
 
         jobLog.info("Job concluído com sucesso");
+        onSuccess?.();
         // retorno implícito undefined → ACK
       } catch (err) {
         jobLog.error({ err, attempt: job.attempt }, "Erro ao executar job");

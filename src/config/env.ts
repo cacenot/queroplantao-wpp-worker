@@ -48,6 +48,9 @@ const envSchema = z.object({
   HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),
   HTTP_API_KEY: z.string().min(1, { message: "HTTP_API_KEY é obrigatória" }),
 
+  // Porta do health check do worker (separada da API)
+  WORKER_HEALTH_PORT: z.coerce.number().int().nonnegative().default(3001),
+
   // QP Admin API — usada para persistir resultados de análise de mensagens
   QP_ADMIN_API_URL: z.string().url({ message: "QP_ADMIN_API_URL deve ser uma URL válida" }),
   QP_ADMIN_API_TOKEN: z.string().min(1, { message: "QP_ADMIN_API_TOKEN é obrigatória" }),
