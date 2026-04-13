@@ -13,7 +13,9 @@
     "infra": "docker compose up -d",
     "remove-spam": "bun run src/scripts/remove-spam.ts",
     "remove-by-phone": "bun run src/scripts/remove-by-phone.ts",
-    "spam-watcher": "bun run src/scripts/spam-watcher.ts"
+    "spam-watcher": "bun run src/scripts/spam-watcher.ts",
+    "test-moderation": "bun run src/scripts/moderation/test-moderation.ts",
+    "test-moderation-bulk": "bun run src/scripts/moderation/bulk-moderation.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.69",

@@ -74,7 +74,7 @@ describe("messageAnalysisSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejeita confidence fora do range 0-1", () => {
+  it("aceita confidence fora do range 0-1 (validação via prompt, não schema)", () => {
     expect(
       messageAnalysisSchema.safeParse({
         action: "allow",
@@ -82,16 +82,7 @@ describe("messageAnalysisSchema", () => {
         confidence: 1.5,
         reason: "test",
       }).success
-    ).toBe(false);
-
-    expect(
-      messageAnalysisSchema.safeParse({
-        action: "allow",
-        category: "clean",
-        confidence: -0.1,
-        reason: "test",
-      }).success
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("rejeita objeto sem reason", () => {

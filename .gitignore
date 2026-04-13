@@ -8,6 +8,9 @@ dist/
 build/
 out/
 
+# ── Generated files ─────────────────────────────────────────────
+src/scripts/moderation/output/
+
 # ── Bun ────────────────────────────────────────────────────────
 bun.lockb
 .bun-cache/

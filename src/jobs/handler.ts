@@ -1,9 +1,9 @@
-import { ConsumerStatus } from "rabbitmq-client";
 import type { AsyncMessage } from "rabbitmq-client";
-import type { MessageAnalysis } from "../ai/moderator.ts";
+import { ConsumerStatus } from "rabbitmq-client";
 import { analyzeMessage } from "../actions/analyze-message.ts";
 import { deleteMessage } from "../actions/delete-message.ts";
 import { removeParticipant } from "../actions/remove-participant.ts";
+import type { MessageAnalysis } from "../ai/moderator.ts";
 import type { Sql } from "../lib/db.ts";
 import { logger } from "../lib/logger.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
