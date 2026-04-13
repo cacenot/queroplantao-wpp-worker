@@ -112,6 +112,7 @@ function escapeCsvField(value: string): string {
 interface Row {
   message: string;
   action: string;
+  partner: string;
   category: string;
   confidence: string;
   reason: string;
@@ -122,7 +123,7 @@ interface Row {
 // Main
 // ---------------------------------------------------------------------------
 
-const CONCURRENCY = 20;
+const CONCURRENCY = 5;
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
@@ -190,6 +191,7 @@ for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY
         rows[idx] = {
           message,
           action: result.action,
+          partner: result.partner ?? "",
           category: result.category,
           confidence: result.confidence.toFixed(2),
           reason: result.reason,
@@ -200,6 +202,7 @@ for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY
         rows[idx] = {
           message,
           action: "",
+          partner: "",
           category: "",
           confidence: "",
           reason: "",
@@ -213,11 +216,11 @@ for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY
 }
 
 // Write CSV output
-const headers = ["message", "action", "category", "confidence", "reason", "error"];
+const headers = ["message", "action", "partner", "category", "confidence", "reason", "error"];
 const csvLines = [
   headers.join(","),
   ...rows.map((row) =>
-    [row.message, row.action, row.category, row.confidence, row.reason, row.error]
+    [row.message, row.action, row.partner, row.category, row.confidence, row.reason, row.error]
       .map(escapeCsvField)
       .join(",")
   ),
