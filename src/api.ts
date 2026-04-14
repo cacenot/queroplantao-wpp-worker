@@ -8,12 +8,21 @@ async function main() {
 
   const rabbit = createAmqpConnection();
 
+  let healthy = false;
+
+  rabbit.on("connection", () => {
+    healthy = true;
+  });
+  rabbit.on("error", () => {
+    healthy = false;
+  });
+
   const publisher = rabbit.createPublisher({
     confirm: true,
     maxAttempts: 2,
   });
 
-  const httpServer = startHttpServer(publisher);
+  const httpServer = startHttpServer(publisher, () => healthy);
 
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando api");

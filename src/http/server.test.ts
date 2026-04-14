@@ -91,7 +91,7 @@ let baseUrl: string;
 beforeAll(() => {
   publisher = makePublisher();
   // biome-ignore lint/suspicious/noExplicitAny: mock de publisher AMQP para testes
-  server = startHttpServer(publisher as any);
+  server = startHttpServer(publisher as any, () => true);
   baseUrl = `http://localhost:${server.port}`;
 });
 
