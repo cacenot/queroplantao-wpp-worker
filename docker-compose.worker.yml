@@ -1,0 +1,15 @@
+services:
+  worker:
+    build: .
+    environment:
+      SERVICE_NAME: wpp-worker
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

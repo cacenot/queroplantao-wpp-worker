@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    command: bun run src/api.ts
+    environment:
+      SERVICE_NAME: wpp-api
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
