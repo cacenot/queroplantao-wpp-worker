@@ -122,7 +122,10 @@ async function handleTasks(req: Request, publisher: Publisher): Promise<Response
   return json({ accepted: jobs.length }, 202);
 }
 
-export function startHttpServer(publisher: Publisher): ReturnType<typeof Bun.serve> {
+export function startHttpServer(
+  publisher: Publisher,
+  isHealthy: () => boolean
+): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port: env.HTTP_PORT,
 
@@ -130,7 +133,8 @@ export function startHttpServer(publisher: Publisher): ReturnType<typeof Bun.ser
       const url = new URL(req.url);
 
       if (url.pathname === "/health" && req.method === "GET") {
-        return json({ status: "ok" }, 200);
+        const ok = isHealthy();
+        return json({ status: ok ? "ok" : "degraded" }, ok ? 200 : 503);
       }
 
       if (url.pathname === "/tasks" && req.method === "POST") {

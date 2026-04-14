@@ -24,8 +24,15 @@ async function main() {
   const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
   const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
 
-  // Estado de saúde rastreado pelo consumer
-  let healthy = true;
+  // Estado de saúde: inicia como false até a conexão AMQP ser estabelecida
+  let healthy = false;
+
+  rabbit.on("connection", () => {
+    healthy = true;
+  });
+  rabbit.on("error", () => {
+    healthy = false;
+  });
 
   const handleMessage = createJobHandler(
     gateway,

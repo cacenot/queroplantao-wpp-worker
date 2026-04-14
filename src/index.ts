@@ -25,6 +25,15 @@ async function main() {
   const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
   const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
 
+  let healthy = false;
+
+  rabbit.on("connection", () => {
+    healthy = true;
+  });
+  rabbit.on("error", () => {
+    healthy = false;
+  });
+
   const handleMessage = createJobHandler(
     gateway,
     sql,
@@ -52,7 +61,7 @@ async function main() {
     maxAttempts: 2,
   });
 
-  const httpServer = startHttpServer(publisher);
+  const httpServer = startHttpServer(publisher, () => healthy);
 
   // Graceful shutdown: fecha publisher, consumer e connection antes de encerrar o processo
   async function shutdown(signal: string) {
