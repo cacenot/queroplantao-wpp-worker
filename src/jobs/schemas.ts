@@ -19,7 +19,6 @@ const analyzeMessagePayloadSchema = z.object({
 // Schema base compartilhado por todos os tipos de job
 const baseJobSchema = z.object({
   id: z.string().min(1),
-  targetKey: z.string().min(1),
   createdAt: z.string().datetime(),
   attempt: z.number().int().nonnegative().optional(),
 });

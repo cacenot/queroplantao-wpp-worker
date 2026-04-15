@@ -15,6 +15,7 @@ process.env.ZAPI_INSTANCES = JSON.stringify([
 ]);
 process.env.HTTP_API_KEY = VALID_API_KEY;
 process.env.HTTP_PORT = "0";
+process.env.REDIS_URL = "redis://localhost:6379";
 
 const { startHttpServer } = await import("./server.ts");
 
@@ -47,7 +48,6 @@ function makeDeleteMessageJob(id = "job-1") {
   return {
     id,
     type: "delete_message" as const,
-    targetKey: "target-1",
     createdAt: "2026-04-10T00:00:00Z",
     payload: { messageId: "msg-1", phone: "5511999990001", owner: true },
   };
@@ -57,7 +57,6 @@ function makeRemoveParticipantJob(id = "job-2") {
   return {
     id,
     type: "remove_participant" as const,
-    targetKey: "target-2",
     createdAt: "2026-04-10T00:00:00Z",
     payload: { groupId: "group-1", phones: ["5511999990001"] },
   };

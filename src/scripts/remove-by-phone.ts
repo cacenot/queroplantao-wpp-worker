@@ -63,7 +63,6 @@ for (const row of rows) {
     {
       id: randomUUID(),
       type: "delete_message",
-      targetKey: row.group_external_id,
       createdAt: now,
       payload: {
         messageId: row.external_message_id,
@@ -92,7 +91,6 @@ for (const pair of uniquePairs) {
     {
       id: randomUUID(),
       type: "remove_participant",
-      targetKey: groupExternalId,
       createdAt: now,
       payload: {
         groupId: groupExternalId,

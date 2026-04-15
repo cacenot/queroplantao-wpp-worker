@@ -37,12 +37,12 @@ const envSchema = z.object({
   ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),
   ZAPI_INSTANCES: zapiInstancesSchema,
 
-  // Concorrência por instância — total = concurrencyPerInstance × instances.length
-  ZAPI_CONCURRENCY_PER_INSTANCE: z.coerce.number().int().positive().default(1),
-
   // Delay aleatório (ms) entre requisições — cria jitter para evitar rajadas
   ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(500),
   ZAPI_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(1800),
+
+  // Redis — usado para coordenar rate limiting distribuído entre workers
+  REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),
 
   // Servidor HTTP para receber tasks via API (0 = porta aleatória, útil em testes)
   HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),

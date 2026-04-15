@@ -91,7 +91,6 @@ Campos comuns a todos os tipos:
 
 - `id`: `string` nao vazia
 - `type`: tipo da task
-- `targetKey`: `string` nao vazia
 - `createdAt`: `string` datetime ISO 8601
 - `attempt`: `number` inteiro >= 0 (opcional)
 
@@ -101,7 +100,6 @@ Campos comuns a todos os tipos:
 {
   "id": "job-1",
   "type": "delete_message",
-  "targetKey": "target-1",
   "createdAt": "2026-04-10T00:00:00Z",
   "attempt": 0,
   "payload": {
@@ -124,7 +122,6 @@ Campos comuns a todos os tipos:
 {
   "id": "job-2",
   "type": "remove_participant",
-  "targetKey": "target-2",
   "createdAt": "2026-04-10T00:00:00Z",
   "payload": {
     "groupId": "group-1",
@@ -138,6 +135,25 @@ Campos comuns a todos os tipos:
 - `groupId`: `string` nao vazia
 - `phones`: array com pelo menos 1 telefone (`string` nao vazia)
 
+### Tipo `analyze_message`
+
+```json
+{
+  "id": "job-3",
+  "type": "analyze_message",
+  "createdAt": "2026-04-10T00:00:00Z",
+  "payload": {
+    "hash": "abc123",
+    "text": "mensagem a analisar"
+  }
+}
+```
+
+`payload` de `analyze_message`:
+
+- `hash`: `string` nao vazia
+- `text`: `string` nao vazia
+
 ## Exemplo completo de batch misto
 
 ```bash
@@ -148,7 +164,6 @@ curl -X POST http://localhost:3000/tasks \
     {
       "id": "job-del-1",
       "type": "delete_message",
-      "targetKey": "target-1",
       "createdAt": "2026-04-10T12:00:00Z",
       "payload": {
         "messageId": "msg-123",
@@ -159,11 +174,19 @@ curl -X POST http://localhost:3000/tasks \
     {
       "id": "job-rm-1",
       "type": "remove_participant",
-      "targetKey": "target-2",
       "createdAt": "2026-04-10T12:01:00Z",
       "payload": {
         "groupId": "group-1",
         "phones": ["5511999990001"]
+      }
+    },
+    {
+      "id": "job-am-1",
+      "type": "analyze_message",
+      "createdAt": "2026-04-10T12:02:00Z",
+      "payload": {
+        "hash": "abc123",
+        "text": "mensagem a analisar"
       }
     }
   ]'
@@ -172,7 +195,7 @@ curl -X POST http://localhost:3000/tasks \
 Resposta esperada:
 
 ```json
-{ "accepted": 2 }
+{ "accepted": 3 }
 ```
 
 ## Rota de healthcheck
@@ -183,10 +206,16 @@ Resposta esperada:
 curl http://localhost:3000/health
 ```
 
-Resposta:
+Resposta quando saudavel (`200 OK`):
 
 ```json
 { "status": "ok" }
+```
+
+Resposta quando degradado — conexao AMQP perdida (`503 Service Unavailable`):
+
+```json
+{ "status": "degraded" }
 ```
 
 ## Variaveis de ambiente relevantes
@@ -194,10 +223,11 @@ Resposta:
 - `HTTP_PORT`: porta do servidor HTTP (default `3000`)
 - `HTTP_API_KEY`: chave obrigatoria para `POST /tasks`
 - `AMQP_QUEUE`: nome da fila para onde as tasks serao publicadas
+- `REDIS_URL`: URL de conexao Redis para rate limiting distribuido
 
 ## Observacoes operacionais
 
-- Cada job do batch e publicado individualmente na fila com `persistent: true`.
+- Cada job do batch e publicado individualmente na fila com `durable: true`.
 
 ## Desenvolvimento local
 
@@ -212,10 +242,11 @@ Resposta:
 docker compose up -d
 ```
 
-Isso inicia o LavinMQ com:
+Isso inicia o LavinMQ e Redis com:
 
 - **AMQP**: `amqp://guest:guest@localhost:5672`
 - **Management UI**: `http://localhost:15672` (user: `guest`, password: `guest`)
+- **Redis**: `redis://localhost:6379`
 
 ### Executando o worker
 
@@ -225,6 +256,7 @@ export AMQP_QUEUE=tasks
 export ZAPI_BASE_URL=https://api.z-api.io
 export ZAPI_INSTANCES='[{"instance_id":"i1","instance_token":"t1","client_token":"c1"}]'
 export HTTP_API_KEY=dev-secret
+export REDIS_URL=redis://localhost:6379
 
 bun run src/index.ts
 ```

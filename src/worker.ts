@@ -6,17 +6,22 @@ import { createAmqpConnection } from "./lib/amqp.ts";
 import { createDbConnection } from "./lib/db.ts";
 import { logger } from "./lib/logger.ts";
 import { QpAdminApiClient } from "./lib/qp-admin-api.ts";
+import { createRedisConnection } from "./lib/redis.ts";
 import { ZApiGateway } from "./zapi/gateway.ts";
 
 async function main() {
   logger.info("Iniciando wpp-worker");
 
+  const redis = createRedisConnection(env.REDIS_URL);
+
   const gateway = new ZApiGateway({
+    redis,
     instances: env.ZAPI_INSTANCES,
-    concurrencyPerInstance: env.ZAPI_CONCURRENCY_PER_INSTANCE,
     delayMinMs: env.ZAPI_DELAY_MIN_MS,
     delayMaxMs: env.ZAPI_DELAY_MAX_MS,
   });
+
+  await gateway.registerInstances();
 
   const rabbit = createAmqpConnection();
   const sql = createDbConnection();
@@ -36,7 +41,6 @@ async function main() {
 
   const handleMessage = createJobHandler(
     gateway,
-    sql,
     (text) => classifyMessage(text, analyzeMessageModel),
     adminApi,
     () => {
@@ -84,6 +88,7 @@ async function main() {
       await consumer.close();
       await rabbit.close();
       await sql.end();
+      redis.disconnect();
     } catch (err) {
       logger.warn({ err }, "Erro ao fechar conexões durante shutdown");
     }

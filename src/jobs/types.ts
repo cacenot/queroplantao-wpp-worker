@@ -19,7 +19,6 @@ export type Job =
   | {
       id: string;
       type: "delete_message";
-      targetKey: string;
       payload: DeleteMessagePayload;
       createdAt: string;
       attempt?: number;
@@ -27,7 +26,6 @@ export type Job =
   | {
       id: string;
       type: "remove_participant";
-      targetKey: string;
       payload: RemoveParticipantPayload;
       createdAt: string;
       attempt?: number;
@@ -35,7 +33,6 @@ export type Job =
   | {
       id: string;
       type: "analyze_message";
-      targetKey: string;
       payload: AnalyzeMessagePayload;
       createdAt: string;
       attempt?: number;
