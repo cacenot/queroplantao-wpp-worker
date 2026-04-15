@@ -1,22 +1,15 @@
 import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 import type { Publisher } from "rabbitmq-client";
 import { z } from "zod";
-import { env } from "../config/env.ts";
-import { jobSchema } from "../jobs/schemas.ts";
-import { logger } from "../lib/logger.ts";
+import { env } from "../../config/env.ts";
+import { jobSchema } from "../../jobs/schemas.ts";
+import { logger } from "../../lib/logger.ts";
 
 const batchSchema = z.array(jobSchema).min(1).max(1000);
 
 const postTasksHeadersSchema = z.object({
   "x-api-key": z.string().min(1),
 });
-
-const postTasksRequestSchema = z.object({
-  headers: postTasksHeadersSchema,
-  body: batchSchema,
-});
-
-export type PostTasksRequest = z.infer<typeof postTasksRequestSchema>;
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2 MB
 
@@ -25,7 +18,6 @@ function timingSafeEqual(a: string, b: string): boolean {
   const bufB = Buffer.from(b);
 
   if (bufA.byteLength !== bufB.byteLength) {
-    // Compare against itself to keep constant time, then return false
     cryptoTimingSafeEqual(bufA, bufA);
     return false;
   }
@@ -86,15 +78,13 @@ async function parseJsonBodyWithLimit(req: Request): Promise<BodyParseResult> {
   }
 }
 
-async function handleTasks(req: Request, publisher: Publisher): Promise<Response> {
-  // Validate headers
+export async function handleTasks(req: Request, publisher: Publisher): Promise<Response> {
   const rawHeaders = { "x-api-key": req.headers.get("x-api-key") ?? "" };
   const headersResult = postTasksHeadersSchema.safeParse(rawHeaders);
   if (!headersResult.success) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  // Auth — timing-safe comparison stays outside zod to prevent timing attacks
   if (!timingSafeEqual(headersResult.data["x-api-key"], env.HTTP_API_KEY)) {
     return json({ error: "Unauthorized" }, 401);
   }
@@ -104,7 +94,6 @@ async function handleTasks(req: Request, publisher: Publisher): Promise<Response
     return json({ error: parsedBody.error }, parsedBody.status);
   }
 
-  // Validate body
   const result = batchSchema.safeParse(parsedBody.data);
   if (!result.success) {
     return json({ error: "Validation failed", details: result.error.flatten() }, 400);
@@ -112,7 +101,6 @@ async function handleTasks(req: Request, publisher: Publisher): Promise<Response
 
   const jobs = result.data;
 
-  // Publish each job to AMQP
   for (const job of jobs) {
     await publisher.send({ routingKey: env.AMQP_QUEUE, durable: true }, job);
   }
@@ -120,37 +108,4 @@ async function handleTasks(req: Request, publisher: Publisher): Promise<Response
   logger.info({ count: jobs.length }, "Batch de jobs publicado via HTTP");
 
   return json({ accepted: jobs.length }, 202);
-}
-
-export function startHttpServer(
-  publisher: Publisher,
-  isHealthy: () => boolean
-): ReturnType<typeof Bun.serve> {
-  const server = Bun.serve({
-    port: env.HTTP_PORT,
-
-    async fetch(req) {
-      const url = new URL(req.url);
-
-      if (url.pathname === "/health" && req.method === "GET") {
-        const ok = isHealthy();
-        return json({ status: ok ? "ok" : "degraded" }, ok ? 200 : 503);
-      }
-
-      if (url.pathname === "/tasks" && req.method === "POST") {
-        try {
-          return await handleTasks(req, publisher);
-        } catch (err) {
-          logger.error({ err }, "Erro inesperado ao processar POST /tasks");
-          return json({ error: "Internal server error" }, 500);
-        }
-      }
-
-      return json({ error: "Not found" }, 404);
-    },
-  });
-
-  logger.info({ port: server.port }, "HTTP server iniciado");
-
-  return server;
 }

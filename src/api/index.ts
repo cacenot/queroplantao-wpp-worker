@@ -1,7 +1,7 @@
-import { env } from "./config/env.ts";
-import { startHttpServer } from "./http/server.ts";
-import { createAmqpConnection } from "./lib/amqp.ts";
-import { logger } from "./lib/logger.ts";
+import { env } from "../config/env.ts";
+import { createAmqpConnection } from "../lib/amqp.ts";
+import { logger } from "../lib/logger.ts";
+import { startHttpServer } from "./server.ts";
 
 async function main() {
   logger.info("Iniciando wpp-api");

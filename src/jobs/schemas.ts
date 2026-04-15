@@ -16,7 +16,6 @@ const analyzeMessagePayloadSchema = z.object({
   text: z.string().min(1),
 });
 
-// Schema base compartilhado por todos os tipos de job
 const baseJobSchema = z.object({
   id: z.string().min(1),
   createdAt: z.string().datetime(),
@@ -24,21 +23,20 @@ const baseJobSchema = z.object({
 });
 
 export const deleteMessageJobSchema = baseJobSchema.extend({
-  type: z.literal("delete_message"),
+  type: z.literal("whatsapp.delete_message"),
   payload: deleteMessagePayloadSchema,
 });
 
 export const removeParticipantJobSchema = baseJobSchema.extend({
-  type: z.literal("remove_participant"),
+  type: z.literal("whatsapp.remove_participant"),
   payload: removeParticipantPayloadSchema,
 });
 
 export const analyzeMessageJobSchema = baseJobSchema.extend({
-  type: z.literal("analyze_message"),
+  type: z.literal("whatsapp.analyze_message"),
   payload: analyzeMessagePayloadSchema,
 });
 
-// Schema raiz — faz discriminação pelo campo `type`
 export const jobSchema = z.discriminatedUnion("type", [
   deleteMessageJobSchema,
   removeParticipantJobSchema,

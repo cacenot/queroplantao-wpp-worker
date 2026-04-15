@@ -62,7 +62,7 @@ for (const row of rows) {
     { routingKey: AMQP_QUEUE, durable: true },
     {
       id: randomUUID(),
-      type: "delete_message",
+      type: "whatsapp.delete_message",
       createdAt: now,
       payload: {
         messageId: row.external_message_id,
@@ -71,11 +71,13 @@ for (const row of rows) {
       },
     }
   );
-  console.log(`delete_message: ${row.external_message_id} (grupo: ${row.group_external_id})`);
+  console.log(
+    `whatsapp.delete_message: ${row.external_message_id} (grupo: ${row.group_external_id})`
+  );
   deleteCount++;
 }
 
-console.log(`Publicados ${deleteCount} jobs delete_message.`);
+console.log(`Publicados ${deleteCount} jobs whatsapp.delete_message.`);
 
 const uniquePairs = new Set<string>();
 for (const row of rows) {
@@ -90,7 +92,7 @@ for (const pair of uniquePairs) {
     { routingKey: AMQP_QUEUE, durable: true },
     {
       id: randomUUID(),
-      type: "remove_participant",
+      type: "whatsapp.remove_participant",
       createdAt: now,
       payload: {
         groupId: groupExternalId,
@@ -101,7 +103,7 @@ for (const pair of uniquePairs) {
   removeCount++;
 }
 
-console.log(`Publicados ${removeCount} jobs remove_participant.`);
+console.log(`Publicados ${removeCount} jobs whatsapp.remove_participant.`);
 console.log("Concluído.");
 
 await publisher.close();

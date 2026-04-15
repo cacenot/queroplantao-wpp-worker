@@ -1,12 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { MessageAnalysis } from "../ai/moderator.ts";
-import type { AnalyzeMessagePayload } from "../jobs/types.ts";
-import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
+import type { MessageAnalysis } from "../../ai/moderator.ts";
+import type { AnalyzeMessagePayload } from "../../jobs/types.ts";
+import type { QpAdminApiClient } from "../../lib/qp-admin-api.ts";
 import { analyzeMessage } from "./analyze-message.ts";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const payload: AnalyzeMessagePayload = {
   hash: "abc123def456",
@@ -17,6 +13,7 @@ const analysis: MessageAnalysis = {
   action: "allow",
   category: "clean",
   confidence: 0.95,
+  partner: null,
   reason: "Mensagem sobre vaga de plantão médico.",
 };
 
@@ -29,10 +26,6 @@ function makeApiClient(impl: () => Promise<void> = () => Promise.resolve()) {
     submitMessageAnalysis: mock(impl),
   } as unknown as QpAdminApiClient;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("analyzeMessage", () => {
   it("classifica a mensagem e persiste o resultado na API", async () => {

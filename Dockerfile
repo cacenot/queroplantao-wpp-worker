@@ -31,5 +31,5 @@ ENV NODE_ENV=production
 
 EXPOSE 3000
 
-# Sinalização de saída é tratada em src/index.ts (SIGTERM / SIGINT)
-CMD ["bun", "run", "src/worker.ts"]
+# Sinalização de saída é tratada em src/worker/index.ts (SIGTERM / SIGINT)
+CMD ["bun", "run", "src/worker/index.ts"]

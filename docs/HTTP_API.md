@@ -258,7 +258,7 @@ export ZAPI_INSTANCES='[{"instance_id":"i1","instance_token":"t1","client_token"
 export HTTP_API_KEY=dev-secret
 export REDIS_URL=redis://localhost:6379
 
-bun run src/index.ts
+bun run src/worker/index.ts
 ```
 
 ### Executando os testes

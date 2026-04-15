@@ -1,38 +1,33 @@
-export interface DeleteMessagePayload {
-  messageId: string;
-  phone: string;
-  owner: boolean;
-}
+import type {
+  DeleteMessagePayload,
+  RemoveParticipantPayload,
+} from "../messaging/whatsapp/types.ts";
 
-export interface RemoveParticipantPayload {
-  groupId: string;
-  phones: string[];
-}
+export type { DeleteMessagePayload, RemoveParticipantPayload };
 
 export interface AnalyzeMessagePayload {
   hash: string;
   text: string;
 }
 
-// Discriminated union — cada tipo de job carrega seu payload específico
 export type Job =
   | {
       id: string;
-      type: "delete_message";
+      type: "whatsapp.delete_message";
       payload: DeleteMessagePayload;
       createdAt: string;
       attempt?: number;
     }
   | {
       id: string;
-      type: "remove_participant";
+      type: "whatsapp.remove_participant";
       payload: RemoveParticipantPayload;
       createdAt: string;
       attempt?: number;
     }
   | {
       id: string;
-      type: "analyze_message";
+      type: "whatsapp.analyze_message";
       payload: AnalyzeMessagePayload;
       createdAt: string;
       attempt?: number;

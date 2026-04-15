@@ -1,6 +1,6 @@
-import type { MessageAnalysis } from "../ai/moderator.ts";
-import type { AnalyzeMessagePayload } from "../jobs/types.ts";
-import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
+import type { MessageAnalysis } from "../../ai/moderator.ts";
+import type { AnalyzeMessagePayload } from "../../jobs/types.ts";
+import type { QpAdminApiClient } from "../../lib/qp-admin-api.ts";
 
 type ClassifyFn = (text: string) => Promise<MessageAnalysis>;
 

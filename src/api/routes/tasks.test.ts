@@ -1,10 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Env vars — precisam ser definidas ANTES do import dinâmico do server,
-// pois env.ts avalia parseEnv() no escopo do módulo.
-// ---------------------------------------------------------------------------
-
 const VALID_API_KEY = "test-api-key-secret";
 
 process.env.AMQP_URL = "amqp://localhost";
@@ -17,7 +12,7 @@ process.env.HTTP_API_KEY = VALID_API_KEY;
 process.env.HTTP_PORT = "0";
 process.env.REDIS_URL = "redis://localhost:6379";
 
-const { startHttpServer } = await import("./server.ts");
+const { startHttpServer } = await import("../server.ts");
 
 interface ErrorResponse {
   error: string;
@@ -32,10 +27,6 @@ interface HealthResponse {
   status: string;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function makePublisher() {
   return {
     send: mock((_envelope: unknown, _body: unknown) => Promise.resolve()),
@@ -47,7 +38,7 @@ type MockPublisher = ReturnType<typeof makePublisher>;
 function makeDeleteMessageJob(id = "job-1") {
   return {
     id,
-    type: "delete_message" as const,
+    type: "whatsapp.delete_message" as const,
     createdAt: "2026-04-10T00:00:00Z",
     payload: { messageId: "msg-1", phone: "5511999990001", owner: true },
   };
@@ -56,7 +47,7 @@ function makeDeleteMessageJob(id = "job-1") {
 function makeRemoveParticipantJob(id = "job-2") {
   return {
     id,
-    type: "remove_participant" as const,
+    type: "whatsapp.remove_participant" as const,
     createdAt: "2026-04-10T00:00:00Z",
     payload: { groupId: "group-1", phones: ["5511999990001"] },
   };
@@ -79,10 +70,6 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-// ---------------------------------------------------------------------------
-// Setup / Teardown
-// ---------------------------------------------------------------------------
-
 let server: ReturnType<typeof Bun.serve>;
 let publisher: MockPublisher;
 let baseUrl: string;
@@ -97,10 +84,6 @@ beforeAll(() => {
 afterAll(() => {
   server.stop(true);
 });
-
-// ---------------------------------------------------------------------------
-// POST /tasks — Autenticação
-// ---------------------------------------------------------------------------
 
 describe("POST /tasks", () => {
   describe("autenticação", () => {
@@ -119,10 +102,6 @@ describe("POST /tasks", () => {
       expect(res.status).toBe(401);
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // POST /tasks — Validação do body
-  // ---------------------------------------------------------------------------
 
   describe("validação do body", () => {
     it("400 quando body não é JSON válido", async () => {
@@ -173,10 +152,6 @@ describe("POST /tasks", () => {
       expect(data.error).toBe("Payload too large");
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // POST /tasks — Happy path
-  // ---------------------------------------------------------------------------
 
   describe("happy path", () => {
     it("202 e publica cada job na fila AMQP para batch válido", async () => {
@@ -232,10 +207,6 @@ describe("POST /tasks", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// GET /health
-// ---------------------------------------------------------------------------
-
 describe("GET /health", () => {
   it("200 sem exigir autenticação", async () => {
     const res = await fetch(`${baseUrl}/health`);
@@ -251,10 +222,6 @@ describe("GET /health", () => {
     expect(res.status).toBe(200);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Rotas inválidas
-// ---------------------------------------------------------------------------
 
 describe("rotas inválidas", () => {
   it("404 para GET /tasks", async () => {

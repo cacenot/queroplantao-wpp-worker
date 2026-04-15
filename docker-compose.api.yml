@@ -1,7 +1,7 @@
 services:
   api:
     build: .
-    command: bun run src/api.ts
+    command: bun run src/api/index.ts
     environment:
       SERVICE_NAME: wpp-api
       NODE_ENV: production
