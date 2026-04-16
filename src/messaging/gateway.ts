@@ -1,29 +1,85 @@
 import type Redis from "ioredis";
 import { logger } from "../lib/logger.ts";
-import type { MessagingProvider, ProviderExecutor } from "./types.ts";
+import type {
+  MessagingLeasedExecution,
+  MessagingProvider,
+  MessagingProviderExecution,
+  ProviderExecutor,
+} from "./types.ts";
 
-const ACQUIRE_SCRIPT = `
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local safety_ttl = tonumber(ARGV[2])
+const ACQUIRE_LEASE_SCRIPT = `
+-- provider-gateway:acquire-lease
+local availability_key = KEYS[1]
+local owner_key = KEYS[2]
+local provider_id = ARGV[1]
+local owner_token = ARGV[2]
+local safety_ttl_ms = tonumber(ARGV[3])
 
-local result = redis.call('ZRANGEBYSCORE', key, '-inf', now, 'LIMIT', 0, 1)
-if #result == 0 then
+local current_time = redis.call('TIME')
+local now_ms = tonumber(current_time[1]) * 1000 + math.floor(tonumber(current_time[2]) / 1000)
+
+local score = redis.call('ZSCORE', availability_key, provider_id)
+if not score then
   return nil
 end
 
-local instance_id = result[1]
-redis.call('ZADD', key, now + safety_ttl, instance_id)
-return instance_id
+if tonumber(score) > now_ms then
+  return nil
+end
+
+local acquired = redis.call('SET', owner_key, owner_token, 'NX', 'PX', safety_ttl_ms)
+if acquired ~= 'OK' then
+  return nil
+end
+
+local lease_until = now_ms + safety_ttl_ms
+redis.call('ZADD', availability_key, lease_until, provider_id)
+return tostring(lease_until)
 `;
 
-const RELEASE_SCRIPT = `
-local key = KEYS[1]
-local available_at = tonumber(ARGV[1])
-local instance_id = ARGV[2]
+const RENEW_LEASE_SCRIPT = `
+-- provider-gateway:renew-lease
+local availability_key = KEYS[1]
+local owner_key = KEYS[2]
+local provider_id = ARGV[1]
+local owner_token = ARGV[2]
+local safety_ttl_ms = tonumber(ARGV[3])
 
-redis.call('ZADD', key, available_at, instance_id)
-return 1
+local current_owner = redis.call('GET', owner_key)
+if current_owner ~= owner_token then
+  return nil
+end
+
+local current_time = redis.call('TIME')
+local now_ms = tonumber(current_time[1]) * 1000 + math.floor(tonumber(current_time[2]) / 1000)
+
+redis.call('PEXPIRE', owner_key, safety_ttl_ms)
+
+local lease_until = now_ms + safety_ttl_ms
+redis.call('ZADD', availability_key, lease_until, provider_id)
+return tostring(lease_until)
+`;
+
+const RELEASE_LEASE_SCRIPT = `
+-- provider-gateway:release-lease
+local availability_key = KEYS[1]
+local owner_key = KEYS[2]
+local provider_id = ARGV[1]
+local owner_token = ARGV[2]
+local cooldown_ms = tonumber(ARGV[3])
+
+local current_owner = redis.call('GET', owner_key)
+if current_owner ~= owner_token then
+  return nil
+end
+
+local current_time = redis.call('TIME')
+local now_ms = tonumber(current_time[1]) * 1000 + math.floor(tonumber(current_time[2]) / 1000)
+local available_at = now_ms + cooldown_ms
+
+redis.call('DEL', owner_key)
+redis.call('ZADD', availability_key, available_at, provider_id)
+return tostring(available_at)
 `;
 
 interface ProviderGatewayOptions<T extends MessagingProvider> {
@@ -34,7 +90,32 @@ interface ProviderGatewayOptions<T extends MessagingProvider> {
   redisKey: string;
   acquireTimeoutMs?: number;
   safetyTtlMs?: number;
+  heartbeatIntervalMs?: number;
   pollIntervalMs?: number;
+}
+
+interface LeaseDefaults {
+  cooldownMinMs: number;
+  cooldownMaxMs: number;
+  safetyTtlMs: number;
+  heartbeatIntervalMs?: number;
+}
+
+interface ResolvedLeasedExecution extends Required<MessagingLeasedExecution> {
+  kind: "leased";
+}
+
+type ResolvedProviderExecution = ResolvedLeasedExecution | { kind: "passthrough" };
+
+interface ProviderEntry<T extends MessagingProvider> {
+  provider: T;
+  execution: ResolvedProviderExecution;
+  ownerKey: string;
+}
+
+interface ProviderPermit<T extends MessagingProvider> {
+  provider: T;
+  release(): Promise<void>;
 }
 
 function randomDelay(min: number, max: number): number {
@@ -43,6 +124,56 @@ function randomDelay(min: number, max: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function deriveHeartbeatInterval(safetyTtlMs: number): number {
+  return Math.max(1, Math.floor(safetyTtlMs / 3));
+}
+
+function validateCooldownRange(delayMinMs: number, delayMaxMs: number, context: string): void {
+  if (delayMinMs < 0 || delayMaxMs < 0) {
+    throw new Error(`${context}: delayMinMs e delayMaxMs devem ser >= 0`);
+  }
+
+  if (delayMinMs > delayMaxMs) {
+    throw new Error(`${context}: delayMinMs não pode ser maior que delayMaxMs`);
+  }
+}
+
+function resolveProviderExecution(
+  execution: MessagingProviderExecution | undefined,
+  defaults: LeaseDefaults,
+  providerId: string
+): ResolvedProviderExecution {
+  if (execution?.kind === "passthrough") {
+    return { kind: "passthrough" };
+  }
+
+  const cooldownMinMs = execution?.cooldownMinMs ?? defaults.cooldownMinMs;
+  const cooldownMaxMs = execution?.cooldownMaxMs ?? defaults.cooldownMaxMs;
+  const safetyTtlMs = execution?.safetyTtlMs ?? defaults.safetyTtlMs;
+  const heartbeatIntervalMs =
+    execution?.heartbeatIntervalMs ?? defaults.heartbeatIntervalMs ?? deriveHeartbeatInterval(safetyTtlMs);
+
+  validateCooldownRange(cooldownMinMs, cooldownMaxMs, `Provider ${providerId}`);
+
+  if (safetyTtlMs <= 0) {
+    throw new Error(`Provider ${providerId}: safetyTtlMs deve ser > 0`);
+  }
+
+  if (heartbeatIntervalMs <= 0 || heartbeatIntervalMs >= safetyTtlMs) {
+    throw new Error(
+      `Provider ${providerId}: heartbeatIntervalMs deve ser > 0 e menor que safetyTtlMs`
+    );
+  }
+
+  return {
+    kind: "leased",
+    cooldownMinMs,
+    cooldownMaxMs,
+    safetyTtlMs,
+    heartbeatIntervalMs,
+  };
 }
 
 /**
@@ -58,13 +189,13 @@ function sleep(ms: number): Promise<void> {
  */
 export class ProviderGateway<T extends MessagingProvider> implements ProviderExecutor<T> {
   private readonly redis: Redis;
-  private readonly providers: Map<string, T>;
-  private readonly delayMinMs: number;
-  private readonly delayMaxMs: number;
+  private readonly providerOrder: ProviderEntry<T>[];
   private readonly redisKey: string;
   private readonly acquireTimeoutMs: number;
   private readonly safetyTtlMs: number;
+  private readonly heartbeatIntervalMs: number;
   private readonly pollIntervalMs: number;
+  private nextProviderIndex = 0;
 
   constructor(options: ProviderGatewayOptions<T>) {
     const {
@@ -75,6 +206,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       redisKey,
       acquireTimeoutMs = 30_000,
       safetyTtlMs = 30_000,
+      heartbeatIntervalMs,
       pollIntervalMs = 100,
     } = options;
 
@@ -82,72 +214,117 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       throw new Error(`Nenhum provider configurado para ${redisKey}`);
     }
 
+    validateCooldownRange(delayMinMs, delayMaxMs, `Gateway ${redisKey}`);
+
+    if (acquireTimeoutMs <= 0) {
+      throw new Error(`Gateway ${redisKey}: acquireTimeoutMs deve ser > 0`);
+    }
+
+    if (pollIntervalMs <= 0) {
+      throw new Error(`Gateway ${redisKey}: pollIntervalMs deve ser > 0`);
+    }
+
+    if (safetyTtlMs <= 0) {
+      throw new Error(`Gateway ${redisKey}: safetyTtlMs deve ser > 0`);
+    }
+
+    const defaultHeartbeatIntervalMs = heartbeatIntervalMs ?? deriveHeartbeatInterval(safetyTtlMs);
+
+    if (defaultHeartbeatIntervalMs <= 0 || defaultHeartbeatIntervalMs >= safetyTtlMs) {
+      throw new Error(
+        `Gateway ${redisKey}: heartbeatIntervalMs deve ser > 0 e menor que safetyTtlMs`
+      );
+    }
+
+    const defaults: LeaseDefaults = {
+      cooldownMinMs: delayMinMs,
+      cooldownMaxMs: delayMaxMs,
+      safetyTtlMs,
+      heartbeatIntervalMs: defaultHeartbeatIntervalMs,
+    };
+
+    const providerIds = new Set<string>();
+    const providerEntries = providers.map((provider) => {
+      const providerId = provider.instance.id;
+
+      if (providerIds.has(providerId)) {
+        throw new Error(`Provider duplicado configurado: ${providerId} (redisKey=${redisKey})`);
+      }
+
+      providerIds.add(providerId);
+
+      return {
+        provider,
+        execution: resolveProviderExecution(provider.execution, defaults, providerId),
+        ownerKey: `${redisKey}:lease:${providerId}`,
+      } satisfies ProviderEntry<T>;
+    });
+
     this.redis = redis;
-    this.providers = new Map(providers.map((p) => [p.instance.id, p]));
-    this.delayMinMs = delayMinMs;
-    this.delayMaxMs = delayMaxMs;
+    this.providerOrder = providerEntries;
     this.redisKey = redisKey;
     this.acquireTimeoutMs = acquireTimeoutMs;
     this.safetyTtlMs = safetyTtlMs;
+    this.heartbeatIntervalMs = defaultHeartbeatIntervalMs;
     this.pollIntervalMs = pollIntervalMs;
+
+    const leasedProviders = providerEntries.filter((entry) => entry.execution.kind === "leased").length;
+    const passthroughProviders = providerEntries.length - leasedProviders;
 
     logger.info(
       {
         redisKey,
-        providers: providers.length,
+        providers: providerEntries.length,
+        leasedProviders,
+        passthroughProviders,
         delayMinMs,
         delayMaxMs,
         acquireTimeoutMs,
         safetyTtlMs,
+        heartbeatIntervalMs: defaultHeartbeatIntervalMs,
       },
       "ProviderGateway inicializado"
     );
   }
 
   async registerProviders(): Promise<void> {
+    const leasedProviders = this.providerOrder.filter((entry) => entry.execution.kind === "leased");
+
+    if (leasedProviders.length === 0) {
+      logger.info({ redisKey: this.redisKey }, "Gateway sem providers leased — registro no Redis ignorado");
+      return;
+    }
+
     const pipeline = this.redis.pipeline();
-    for (const id of this.providers.keys()) {
-      pipeline.zadd(this.redisKey, "NX", "0", id);
+    for (const entry of leasedProviders) {
+      pipeline.zadd(this.redisKey, "NX", "0", entry.provider.instance.id);
     }
     await pipeline.exec();
 
     logger.info(
-      { redisKey: this.redisKey, count: this.providers.size },
+      { redisKey: this.redisKey, count: leasedProviders.length },
       "Providers registrados no Redis"
     );
   }
 
   async execute<R>(fn: (provider: T) => Promise<R>): Promise<R> {
-    const id = await this.acquire();
-    const provider = this.providers.get(id);
-
-    if (!provider) {
-      throw new Error(`Provider não encontrado: ${id} (redisKey=${this.redisKey})`);
-    }
+    const permit = await this.acquirePermit();
 
     try {
-      return await fn(provider);
+      return await fn(permit.provider);
     } finally {
-      const cooldown = randomDelay(this.delayMinMs, this.delayMaxMs);
-      await this.release(id, cooldown);
+      await permit.release();
     }
   }
 
-  private async acquire(): Promise<string> {
+  private async acquirePermit(): Promise<ProviderPermit<T>> {
     const deadline = Date.now() + this.acquireTimeoutMs;
 
     while (Date.now() < deadline) {
-      const now = Date.now();
-      const result = await this.redis.eval(
-        ACQUIRE_SCRIPT,
-        1,
-        this.redisKey,
-        String(now),
-        String(this.safetyTtlMs)
-      );
+      const permit = await this.tryAcquireFromRotation();
 
-      if (result !== null) {
-        return result as string;
+      if (permit) {
+        return permit;
       }
 
       await sleep(this.pollIntervalMs);
@@ -158,8 +335,176 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     );
   }
 
-  private async release(id: string, cooldownMs: number): Promise<void> {
-    const availableAt = Date.now() + cooldownMs;
-    await this.redis.eval(RELEASE_SCRIPT, 1, this.redisKey, String(availableAt), id);
+  private async tryAcquireFromRotation(): Promise<ProviderPermit<T> | null> {
+    const providerCount = this.providerOrder.length;
+    const startIndex = this.nextProviderIndex;
+
+    for (let offset = 0; offset < providerCount; offset++) {
+      const index = (startIndex + offset) % providerCount;
+      const entry = this.providerOrder[index];
+
+      if (!entry) {
+        continue;
+      }
+
+      const permit = await this.tryAcquireEntry(entry);
+
+      if (permit) {
+        this.nextProviderIndex = (index + 1) % providerCount;
+        return permit;
+      }
+    }
+
+    return null;
+  }
+
+  private async tryAcquireEntry(entry: ProviderEntry<T>): Promise<ProviderPermit<T> | null> {
+    const execution = entry.execution;
+
+    if (execution.kind === "passthrough") {
+      return {
+        provider: entry.provider,
+        release: async () => {},
+      };
+    }
+
+    const ownerToken = crypto.randomUUID();
+    const acquired = await this.acquireLease(entry, execution, ownerToken);
+
+    if (!acquired) {
+      return null;
+    }
+
+    const heartbeat = this.startLeaseHeartbeat(entry, execution, ownerToken);
+
+    return {
+      provider: entry.provider,
+      release: async () => {
+        await heartbeat.stop();
+
+        const cooldownMs = randomDelay(execution.cooldownMinMs, execution.cooldownMaxMs);
+        const released = await this.releaseLease(entry, ownerToken, cooldownMs);
+
+        if (!released) {
+          logger.warn(
+            { providerId: entry.provider.instance.id, redisKey: this.redisKey },
+            "Lease do provider já não pertencia mais a este worker durante release"
+          );
+        }
+      },
+    };
+  }
+
+  private async acquireLease(
+    entry: ProviderEntry<T>,
+    execution: ResolvedLeasedExecution,
+    ownerToken: string
+  ): Promise<boolean> {
+    const result = await this.redis.eval(
+      ACQUIRE_LEASE_SCRIPT,
+      2,
+      this.redisKey,
+      entry.ownerKey,
+      entry.provider.instance.id,
+      ownerToken,
+      String(execution.safetyTtlMs)
+    );
+
+    return result !== null;
+  }
+
+  private async renewLease(
+    entry: ProviderEntry<T>,
+    execution: ResolvedLeasedExecution,
+    ownerToken: string
+  ): Promise<boolean> {
+    const result = await this.redis.eval(
+      RENEW_LEASE_SCRIPT,
+      2,
+      this.redisKey,
+      entry.ownerKey,
+      entry.provider.instance.id,
+      ownerToken,
+      String(execution.safetyTtlMs)
+    );
+
+    return result !== null;
+  }
+
+  private async releaseLease(
+    entry: ProviderEntry<T>,
+    ownerToken: string,
+    cooldownMs: number
+  ): Promise<boolean> {
+    const result = await this.redis.eval(
+      RELEASE_LEASE_SCRIPT,
+      2,
+      this.redisKey,
+      entry.ownerKey,
+      entry.provider.instance.id,
+      ownerToken,
+      String(cooldownMs)
+    );
+
+    return result !== null;
+  }
+
+  private startLeaseHeartbeat(
+    entry: ProviderEntry<T>,
+    execution: ResolvedLeasedExecution,
+    ownerToken: string
+  ): { stop(): Promise<void> } {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pendingRenewal: Promise<void> | null = null;
+
+    const schedule = () => {
+      if (stopped) {
+        return;
+      }
+
+      timer = setTimeout(() => {
+        pendingRenewal = this.renewLease(entry, execution, ownerToken)
+          .then((renewed) => {
+            pendingRenewal = null;
+
+            if (!renewed) {
+              stopped = true;
+              logger.warn(
+                { providerId: entry.provider.instance.id, redisKey: this.redisKey },
+                "Lease do provider foi perdida durante heartbeat"
+              );
+              return;
+            }
+
+            schedule();
+          })
+          .catch((err) => {
+            pendingRenewal = null;
+            stopped = true;
+
+            logger.warn(
+              { err, providerId: entry.provider.instance.id, redisKey: this.redisKey },
+              "Erro ao renovar lease do provider"
+            );
+          });
+      }, execution.heartbeatIntervalMs);
+    };
+
+    schedule();
+
+    return {
+      stop: async () => {
+        stopped = true;
+
+        if (timer) {
+          clearTimeout(timer);
+        }
+
+        if (pendingRenewal) {
+          await pendingRenewal.catch(() => undefined);
+        }
+      },
+    };
   }
 }

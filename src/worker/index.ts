@@ -1,23 +1,83 @@
 import { createModel } from "../ai/model.ts";
 import { classifyMessage } from "../ai/moderator.ts";
 import { env } from "../config/env.ts";
-import { createDbConnection } from "../db/client.ts";
+import { createDbConnection, createDrizzleDb, type Db } from "../db/client.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { ProviderGateway } from "../messaging/gateway.ts";
+import type { MessagingProviderExecution } from "../messaging/types.ts";
+import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
 import { createZApiProviders } from "../messaging/whatsapp/zapi/provider.ts";
+import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
 import { createJobHandler } from "./handler.ts";
+
+function mapExecutionStrategy(instance: {
+  executionStrategy: "leased" | "passthrough";
+  cooldownMinMs: number | null;
+  cooldownMaxMs: number | null;
+  safetyTtlMs: number | null;
+  heartbeatIntervalMs: number | null;
+}): MessagingProviderExecution {
+  if (instance.executionStrategy === "passthrough") {
+    return { kind: "passthrough" };
+  }
+
+  return {
+    kind: "leased",
+    cooldownMinMs: instance.cooldownMinMs ?? undefined,
+    cooldownMaxMs: instance.cooldownMaxMs ?? undefined,
+    safetyTtlMs: instance.safetyTtlMs ?? undefined,
+    heartbeatIntervalMs: instance.heartbeatIntervalMs ?? undefined,
+  };
+}
+
+async function loadZApiProviderConfigs(db: Db): Promise<ZApiInstanceConfig[]> {
+  try {
+    const registry = new ProviderRegistryReadService(db);
+    const instances = await registry.listEnabledZApiInstances();
+
+    if (instances.length > 0) {
+      logger.info({ count: instances.length }, "Instâncias Z-API carregadas do banco");
+
+      return instances.map((instance) => ({
+        instance_id: instance.instanceId,
+        instance_token: instance.instanceToken,
+        client_token: env.ZAPI_CLIENT_TOKEN,
+        execution: mapExecutionStrategy(instance),
+      }));
+    }
+
+    if (env.ZAPI_INSTANCES.length > 0) {
+      logger.warn(
+        "Nenhuma instância Z-API habilitada encontrada no banco; usando fallback da env"
+      );
+      return env.ZAPI_INSTANCES;
+    }
+
+    throw new Error("Nenhuma instância Z-API habilitada encontrada no banco");
+  } catch (err) {
+    if (env.ZAPI_INSTANCES.length > 0) {
+      logger.warn({ err }, "Falha ao carregar instâncias Z-API do banco; usando fallback da env");
+      return env.ZAPI_INSTANCES;
+    }
+
+    throw err;
+  }
+}
 
 async function main() {
   logger.info("Iniciando wpp-worker");
 
   const redis = createRedisConnection(env.REDIS_URL);
+  const sql = createDbConnection();
+  const db = createDrizzleDb(sql);
+  const zapiProviderConfigs = await loadZApiProviderConfigs(db);
 
   const whatsappGateway = new ProviderGateway({
     redis,
-    providers: createZApiProviders(env.ZAPI_INSTANCES),
+    providers: createZApiProviders(zapiProviderConfigs),
     delayMinMs: env.ZAPI_DELAY_MIN_MS,
     delayMaxMs: env.ZAPI_DELAY_MAX_MS,
     redisKey: "messaging:whatsapp",
@@ -26,7 +86,6 @@ async function main() {
   await whatsappGateway.registerProviders();
 
   const rabbit = createAmqpConnection();
-  const sql = createDbConnection();
 
   const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
   const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);

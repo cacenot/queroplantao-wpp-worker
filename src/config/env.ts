@@ -1,18 +1,34 @@
 import { z } from "zod";
+import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
 
-// Schema de uma única instância da Z-API
-const zapiInstanceSchema = z.object({
+// Schema legado de uma única instância da Z-API na env.
+const legacyZApiInstanceSchema = z.object({
   instance_id: z.string().min(1),
   instance_token: z.string().min(1),
-  client_token: z.string().min(1),
+  client_token: z.string().min(1).optional(),
 });
 
-// Faz o parse da env var ZAPI_INSTANCES, que é uma string JSON com array de objetos
 const zapiInstancesSchema = z
   .string()
+  .optional()
   .transform((raw, ctx) => {
+    if (!raw || raw.trim() === "") {
+      return [];
+    }
+
     try {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      const result = z.array(legacyZApiInstanceSchema).safeParse(parsed);
+
+      if (!result.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "ZAPI_INSTANCES contém instâncias inválidas",
+        });
+        return z.NEVER;
+      }
+
+      return result.data;
     } catch {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -20,12 +36,65 @@ const zapiInstancesSchema = z
       });
       return z.NEVER;
     }
-  })
-  .pipe(
-    z.array(zapiInstanceSchema).min(1, {
-      message: "ZAPI_INSTANCES deve conter pelo menos uma instância",
-    })
-  );
+  });
+
+type LegacyZApiInstanceConfig = z.infer<typeof legacyZApiInstanceSchema>;
+
+function throwInvalidEnv(message: string): never {
+  throw new Error(`Configuração de ambiente inválida:\n  ${message}`);
+}
+
+function resolveZApiClientToken(
+  instances: LegacyZApiInstanceConfig[],
+  explicitClientToken?: string
+): string {
+  if (explicitClientToken) {
+    return explicitClientToken;
+  }
+
+  const legacyTokens = instances
+    .map((instance) => instance.client_token)
+    .filter((token): token is string => typeof token === "string" && token.length > 0);
+
+  if (legacyTokens.length === 0) {
+    throwInvalidEnv(
+      "[ZAPI_CLIENT_TOKEN] é obrigatória quando ZAPI_INSTANCES não informa client_token legado"
+    );
+  }
+
+  if (legacyTokens.length !== instances.length) {
+    throwInvalidEnv(
+      "[ZAPI_INSTANCES] client_token legado deve estar presente em todas as instâncias ou ZAPI_CLIENT_TOKEN deve ser definida"
+    );
+  }
+
+  const uniqueTokens = [...new Set(legacyTokens)];
+
+  if (uniqueTokens.length !== 1) {
+    throwInvalidEnv(
+      "[ZAPI_INSTANCES] client_token legado deve ser idêntico em todas as instâncias antes da migração para ZAPI_CLIENT_TOKEN"
+    );
+  }
+
+  const [sharedToken] = uniqueTokens;
+
+  if (!sharedToken) {
+    throwInvalidEnv("[ZAPI_CLIENT_TOKEN] não foi possível resolver o client token compartilhado");
+  }
+
+  return sharedToken;
+}
+
+function normalizeZApiInstances(
+  instances: LegacyZApiInstanceConfig[],
+  clientToken: string
+): ZApiInstanceConfig[] {
+  return instances.map(({ instance_id, instance_token }) => ({
+    instance_id,
+    instance_token,
+    client_token: clientToken,
+  }));
+}
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, { message: "DATABASE_URL é obrigatória" }),
@@ -35,6 +104,7 @@ const envSchema = z.object({
   AMQP_PREFETCH: z.coerce.number().int().positive().default(5),
 
   ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),
+  ZAPI_CLIENT_TOKEN: z.string().min(1).optional(),
   ZAPI_INSTANCES: zapiInstancesSchema,
 
   // Delay aleatório (ms) entre requisições — cria jitter para evitar rajadas
@@ -79,7 +149,16 @@ function parseEnv() {
     throw new Error(`Configuração de ambiente inválida:\n${formatted}`);
   }
 
-  return result.data;
+  const sharedZApiClientToken = resolveZApiClientToken(
+    result.data.ZAPI_INSTANCES,
+    result.data.ZAPI_CLIENT_TOKEN
+  );
+
+  return {
+    ...result.data,
+    ZAPI_CLIENT_TOKEN: sharedZApiClientToken,
+    ZAPI_INSTANCES: normalizeZApiInstances(result.data.ZAPI_INSTANCES, sharedZApiClientToken),
+  };
 }
 
 // Exportado uma única vez no startup — demais módulos importam daqui

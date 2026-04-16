@@ -66,7 +66,8 @@ A pasta `src/api/routes/webhooks/` está pronta; os handlers específicos são u
 | `src/actions/{protocol}/` | Lógica de negócio por plataforma. Recebem `Executor` injetado. | Conhecimento de AMQP, HTTP, provider concreto. |
 | `src/ai/` | Modelos e classificador LLM. | Lógica de ação. |
 | `src/jobs/` | Types e schemas Zod dos jobs que trafegam no AMQP. | Lógica de execução. |
-| `src/db/` | Conexão Postgres. Futuras entidades e repositories. | |
+| `src/db/` | Conexão Postgres, schema Drizzle e migrations. | Lógica de domínio e regras de negócio. |
+| `src/services/` | Services de aplicação para leitura/escrita de dados e integração entre infra e domínio. | Entry points HTTP/AMQP e providers concretos. |
 | `src/lib/` | Infra compartilhada: AMQP, Redis, logger, clients HTTP externos. | Lógica de domínio. |
 | `src/config/` | `env.ts` — parse e validação de variáveis. | |
 | `src/scripts/` | Scripts auxiliares (spam watcher, bulk remove, moderação offline). | |
@@ -84,6 +85,18 @@ Unificar em uma única interface forçaria o menor denominador comum e perderia 
 
 O que é **compartilhado**: o rate limiter (`ProviderGateway<T>`), porque o algoritmo (acquire/release com Lua atômico no Redis) funciona para qualquer protocolo — só o `redisKey` muda.
 
+## Provider registry
+
+O bootstrap dos providers começou a migrar de env vars para banco.
+
+- A tabela base `messaging_provider_instances` guarda o que é comum a qualquer provider: protocolo, tipo concreto, nome, habilitação e defaults de execução.
+- A tabela `zapi_instances` guarda o que é específico da Z-API por instância: `zapi_instance_id`, `instance_token` e o snapshot atual de conexão/device.
+- As tabelas `zapi_instance_connection_events` e `zapi_instance_device_snapshots` são append-only e preservam histórico para futuros webhooks e sincronizações.
+- O `Client-Token` da Z-API **não** fica no banco. Ele é um segredo compartilhado por integração e fica em `ZAPI_CLIENT_TOKEN` na env.
+- Enquanto a migração não termina, `ZAPI_INSTANCES` continua existindo como fallback legado no worker.
+
+Detalhes operacionais do gateway e da lease distribuída: `docs/provider-gateway.md`.
+
 ## Como adicionar um novo provider
 
 ### WhatsApp (ex.: WhatsMeow)
@@ -91,12 +104,12 @@ O que é **compartilhado**: o rate limiter (`ProviderGateway<T>`), porque o algo
 1. Criar `src/messaging/whatsapp/whatsmeow/types.ts` com o shape de configuração da instância.
 2. Criar `src/messaging/whatsapp/whatsmeow/client.ts` com `class WhatsMeowClient implements WhatsAppProvider`. Deve expor `readonly instance: WhatsAppInstance` (com `id` único por instância).
 3. Criar `src/messaging/whatsapp/whatsmeow/provider.ts` com um factory (`createWhatsMeowProviders(configs)`).
-4. Adicionar variáveis em `src/config/env.ts` para configurar as instâncias.
+4. Adicionar a tabela específica do provider em `src/db/schema/` e um service de leitura em `src/services/` para materializar configs habilitadas.
 5. Em `src/worker/index.ts`, concatenar os providers no array passado ao `ProviderGateway`:
    ```typescript
    providers: [
-     ...createZApiProviders(env.ZAPI_INSTANCES),
-     ...createWhatsMeowProviders(env.WHATSMEOW_INSTANCES),
+     ...createZApiProviders(zapiConfigs),
+     ...createWhatsMeowProviders(whatsmeowConfigs),
    ]
    ```
 
@@ -112,28 +125,30 @@ Zero mudança nas actions.
 
 ## Rate limiting distribuído
 
-O `ProviderGateway` usa um Redis Sorted Set por protocolo:
+O `ProviderGateway` suporta duas estratégias por provider:
 
-- **Key**: `messaging:{protocolo}` (ex.: `messaging:whatsapp`).
-- **Member**: `provider.instance.id`.
-- **Score**: timestamp (ms) de quando o provider estará disponível para a próxima ação.
+- **Leased**: coordenação distribuída por instância via Redis.
+- **Passthrough**: execução direta, sem acquire/release distribuído.
 
-### Acquire (Lua atômico)
+Para providers `leased`, o Redis mantém:
 
-1. `ZRANGEBYSCORE key -inf now LIMIT 0 1` — pega o provider mais antigo disponível.
-2. Se existir: `ZADD key (now + safetyTtlMs) id` — marca como busy. O `safetyTtlMs` (default 30s) é um circuit-breaker: se o worker crashar segurando o provider, ele é liberado automaticamente.
-3. Retorna o `id` (ou `nil` se nenhum disponível).
+- **Sorted Set**: `messaging:{protocolo}` com score = `available_at`
+- **Ownership key**: `messaging:{protocolo}:lease:{providerId}` com token + TTL
 
-### Release (Lua atômico)
+O fluxo de lease usa scripts Lua para:
 
-1. `ZADD key (now + cooldownMs) id` — cooldown aleatório entre `delayMinMs` e `delayMaxMs`.
+- adquirir a lease com ownership token
+- renovar a lease por heartbeat
+- liberar a lease com proteção contra stale release
+
+Os detalhes completos estão em `docs/provider-gateway.md`.
 
 ### Debug
 
 ```bash
 redis-cli ZRANGE messaging:whatsapp 0 -1 WITHSCORES
-# score 0        → disponível imediatamente
-# score > now    → busy ou em cooldown
+# score <= now   → provider leased disponível
+# score > now    → provider leased busy ou em cooldown
 ```
 
 ## Contratos de job
@@ -166,7 +181,8 @@ Todos os jobs seguem o formato:
 | `AMQP_QUEUE` | string | — | API + Worker |
 | `AMQP_PREFETCH` | number | 5 | Worker |
 | `ZAPI_BASE_URL` | string (URL) | — | Worker |
-| `ZAPI_INSTANCES` | JSON array | — | Worker |
+| `ZAPI_CLIENT_TOKEN` | string | — | Worker |
+| `ZAPI_INSTANCES` | JSON array | — | Worker (fallback legado durante migração) |
 | `ZAPI_DELAY_MIN_MS` | number | 500 | Worker |
 | `ZAPI_DELAY_MAX_MS` | number | 1800 | Worker |
 | `REDIS_URL` | string (URL) | — | Worker |

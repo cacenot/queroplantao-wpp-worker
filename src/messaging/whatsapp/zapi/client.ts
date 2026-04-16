@@ -27,9 +27,11 @@ export class ZApiError extends Error {
  */
 export class ZApiClient implements WhatsAppProvider {
   readonly instance: WhatsAppInstance;
+  readonly execution;
 
   constructor(private readonly config: ZApiInstanceConfig) {
     this.instance = { id: config.instance_id };
+    this.execution = config.execution;
   }
 
   /**

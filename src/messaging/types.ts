@@ -2,8 +2,25 @@ export interface MessagingInstance {
   id: string;
 }
 
+export interface MessagingLeasedExecution {
+  kind: "leased";
+  cooldownMinMs?: number;
+  cooldownMaxMs?: number;
+  safetyTtlMs?: number;
+  heartbeatIntervalMs?: number;
+}
+
+export interface MessagingPassthroughExecution {
+  kind: "passthrough";
+}
+
+export type MessagingProviderExecution =
+  | MessagingLeasedExecution
+  | MessagingPassthroughExecution;
+
 export interface MessagingProvider {
   readonly instance: MessagingInstance;
+  readonly execution?: MessagingProviderExecution;
 }
 
 export type ProviderExecutor<T extends MessagingProvider> = {
