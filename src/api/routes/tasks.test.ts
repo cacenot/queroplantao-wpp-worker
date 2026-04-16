@@ -21,21 +21,30 @@ interface ErrorResponse {
 
 interface AcceptedResponse {
   accepted: number;
+  duplicates: number;
 }
 
 interface HealthResponse {
   status: string;
 }
 
-function makePublisher() {
+function makeTaskService() {
   return {
-    send: mock((_envelope: unknown, _body: unknown) => Promise.resolve()),
+    enqueue: mock((jobs: unknown[]) =>
+      Promise.resolve({ accepted: jobs.length, duplicates: 0, ids: [] as string[] })
+    ),
+    claimForExecution: mock(() => Promise.resolve(null)),
+    markSucceeded: mock(() => Promise.resolve()),
+    markFailed: mock(() => Promise.resolve()),
+    markDropped: mock(() => Promise.resolve()),
+    get: mock(() => Promise.resolve(null)),
+    list: mock(() => Promise.resolve({ data: [], pagination: { limit: 20, offset: 0, total: 0 } })),
   };
 }
 
-type MockPublisher = ReturnType<typeof makePublisher>;
+type MockTaskService = ReturnType<typeof makeTaskService>;
 
-function makeDeleteMessageJob(id = "job-1") {
+function makeDeleteMessageJob(id = "550e8400-e29b-41d4-a716-446655440001") {
   return {
     id,
     type: "whatsapp.delete_message" as const,
@@ -44,7 +53,7 @@ function makeDeleteMessageJob(id = "job-1") {
   };
 }
 
-function makeRemoveParticipantJob(id = "job-2") {
+function makeRemoveParticipantJob(id = "550e8400-e29b-41d4-a716-446655440002") {
   return {
     id,
     type: "whatsapp.remove_participant" as const,
@@ -71,13 +80,13 @@ async function readJson<T>(res: Response): Promise<T> {
 }
 
 let server: ReturnType<typeof startHttpServer>;
-let publisher: MockPublisher;
+let taskService: MockTaskService;
 let baseUrl: string;
 
 beforeAll(() => {
-  publisher = makePublisher();
-  // biome-ignore lint/suspicious/noExplicitAny: mock de publisher AMQP para testes
-  server = startHttpServer(publisher as any, () => true);
+  taskService = makeTaskService();
+  // biome-ignore lint/suspicious/noExplicitAny: mock de TaskService para testes
+  server = startHttpServer({ taskService: taskService as any, isHealthy: () => true });
   baseUrl = `http://localhost:${server.port}`;
 });
 
@@ -133,7 +142,9 @@ describe("POST /tasks", () => {
     });
 
     it("400 quando array excede 1000 items", async () => {
-      const jobs = Array.from({ length: 1001 }, (_, i) => makeDeleteMessageJob(`job-${i}`));
+      const jobs = Array.from({ length: 1001 }, (_, i) =>
+        makeDeleteMessageJob(`550e8400-e29b-41d4-a716-${String(i).padStart(12, "0")}`)
+      );
       const res = await postTasks(baseUrl, jobs);
       expect(res.status).toBe(400);
     });
@@ -154,32 +165,39 @@ describe("POST /tasks", () => {
   });
 
   describe("happy path", () => {
-    it("202 e publica cada job na fila AMQP para batch válido", async () => {
-      publisher.send.mockClear();
-      const jobs = [makeDeleteMessageJob("hp-1"), makeDeleteMessageJob("hp-2")];
+    it("202 e chama enqueue para batch válido", async () => {
+      taskService.enqueue.mockClear();
+      const jobs = [
+        makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440010"),
+        makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440011"),
+      ];
 
       const res = await postTasks(baseUrl, jobs);
 
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
       expect(data.accepted).toBe(2);
-      expect(publisher.send).toHaveBeenCalledTimes(2);
+      expect(data.duplicates).toBe(0);
+      expect(taskService.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it("202 para batch com um único job", async () => {
-      publisher.send.mockClear();
+      taskService.enqueue.mockClear();
 
       const res = await postTasks(baseUrl, [makeDeleteMessageJob()]);
 
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
       expect(data.accepted).toBe(1);
-      expect(publisher.send).toHaveBeenCalledTimes(1);
+      expect(taskService.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it("202 para batch misto (delete_message + remove_participant)", async () => {
-      publisher.send.mockClear();
-      const jobs = [makeDeleteMessageJob("mix-1"), makeRemoveParticipantJob("mix-2")];
+      taskService.enqueue.mockClear();
+      const jobs = [
+        makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440020"),
+        makeRemoveParticipantJob("550e8400-e29b-41d4-a716-446655440021"),
+      ];
 
       const res = await postTasks(baseUrl, jobs);
 
@@ -188,21 +206,21 @@ describe("POST /tasks", () => {
       expect(data.accepted).toBe(2);
     });
 
-    it("publica cada job na fila correta com deliveryMode persistente", async () => {
-      publisher.send.mockClear();
-      const job = makeDeleteMessageJob("persist-1");
+    it("passa os jobs validados para o enqueue", async () => {
+      taskService.enqueue.mockClear();
+      const job = makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440030");
 
       await postTasks(baseUrl, [job]);
 
-      expect(publisher.send).toHaveBeenCalledTimes(1);
+      expect(taskService.enqueue).toHaveBeenCalledTimes(1);
 
-      const firstCall = publisher.send.mock.calls[0];
+      const firstCall = taskService.enqueue.mock.calls[0];
       expect(firstCall).toBeDefined();
-      if (!firstCall) throw new Error("send should have at least one call");
+      if (!firstCall) throw new Error("enqueue should have at least one call");
 
-      const [envelope, body] = firstCall;
-      expect(envelope).toEqual({ routingKey: "test-queue", durable: true });
-      expect(body).toEqual(job);
+      const [jobs] = firstCall;
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toEqual(job);
     });
   });
 });

@@ -17,7 +17,7 @@ const analyzeMessagePayloadSchema = z.object({
 });
 
 const baseJobSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().uuid(),
   createdAt: z.string().datetime(),
   attempt: z.number().int().nonnegative().optional(),
 });

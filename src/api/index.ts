@@ -1,7 +1,11 @@
 import { env } from "../config/env.ts";
 import { createDbConnection, createDrizzleDb } from "../db/client.ts";
+import { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
+import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
+import { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
+import { TaskService } from "../services/task/index.ts";
 import { startHttpServer } from "./server.ts";
 
 async function main() {
@@ -26,7 +30,21 @@ async function main() {
   const sql = createDbConnection();
   const db = createDrizzleDb(sql);
 
-  const httpServer = startHttpServer(publisher, () => healthy, db);
+  const taskService = new TaskService({
+    repo: new TaskRepository(db),
+    publisher,
+    queueName: env.AMQP_QUEUE,
+  });
+
+  const instanceService = new MessagingProviderInstanceService(
+    new MessagingProviderInstanceRepository(db)
+  );
+
+  const httpServer = startHttpServer({
+    taskService,
+    instanceService,
+    isHealthy: () => healthy,
+  });
 
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando api");

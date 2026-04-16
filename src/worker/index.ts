@@ -2,15 +2,17 @@ import { createModel } from "../ai/model.ts";
 import { classifyMessage } from "../ai/moderator.ts";
 import { env } from "../config/env.ts";
 import { createDbConnection, createDrizzleDb, type Db } from "../db/client.ts";
+import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { ProviderGateway } from "../messaging/gateway.ts";
 import type { MessagingProviderExecution } from "../messaging/types.ts";
-import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
 import { createZApiProviders } from "../messaging/whatsapp/zapi/provider.ts";
+import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
 import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
+import { TaskService } from "../services/task/index.ts";
 import { createJobHandler } from "./handler.ts";
 
 function mapExecutionStrategy(instance: {
@@ -50,9 +52,7 @@ async function loadZApiProviderConfigs(db: Db): Promise<ZApiInstanceConfig[]> {
     }
 
     if (env.ZAPI_INSTANCES.length > 0) {
-      logger.warn(
-        "Nenhuma instância Z-API habilitada encontrada no banco; usando fallback da env"
-      );
+      logger.warn("Nenhuma instância Z-API habilitada encontrada no banco; usando fallback da env");
       return env.ZAPI_INSTANCES;
     }
 
@@ -99,10 +99,13 @@ async function main() {
     healthy = false;
   });
 
+  const taskService = new TaskService({ repo: new TaskRepository(db) });
+
   const handleMessage = createJobHandler({
     whatsappGateway,
     classifyMessage: (text) => classifyMessage(text, analyzeMessageModel),
     adminApi,
+    taskService,
     onSuccess: () => {
       healthy = true;
     },

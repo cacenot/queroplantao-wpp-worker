@@ -102,6 +102,39 @@ O bootstrap dos providers começou a migrar de env vars para banco.
 
 Detalhes operacionais do gateway e da lease distribuída: `docs/provider-gateway.md`.
 
+## Persistência de tasks
+
+Cada job publicado no AMQP é persistido como uma linha na tabela `tasks` antes do publish. O `TaskService` (`src/services/task/`) centraliza criação e transições de estado, permitindo que qualquer produtor (API, webhooks, scripts) use `taskService.enqueue([...jobs])`.
+
+### Ciclo de vida
+
+```
+pending → queued → running → succeeded | failed
+                                        ↳ dropped (schema inválido no worker)
+```
+
+- **pending**: inserido no DB, ainda não confirmado pelo broker.
+- **queued**: `publisher.send` retornou com sucesso (broker ack via `confirm: true`).
+- **running**: worker reivindicou a task (`claimForExecution` faz UPDATE atômico com `status IN ('queued','pending')`).
+- **succeeded / failed**: terminal. Worker atualiza após executar a action.
+- **dropped**: job com schema inválido recebido pelo worker (defensivo).
+
+### Idempotência
+
+- INSERT usa `ON CONFLICT DO NOTHING` — cliente pode re-enviar o mesmo `job.id` sem erro.
+- Worker verifica estado antes de executar: se a task já está terminal, faz DROP sem re-executar (protege contra redelivery após crash).
+
+### Robustez
+
+- Escritas de estado no worker são **best-effort**: se o UPDATE falha após a action executar, o job já foi processado; logamos warn e seguimos (evita re-execução).
+- Tasks que ficam em `pending` (API crashou entre INSERT e publish) são detectáveis por query: `status = 'pending' AND created_at < now() - interval '5 minutes'`. O reaper automático é um follow-up planejado.
+
+### Limitações atuais
+
+- Sem reaper automático para tasks órfãs em `pending`/`running`.
+- Sem retry controlado / DLQ (o campo `attempt` já é incrementado pelo `claimForExecution`; falta o mecanismo de re-publish).
+- Endpoints HTTP de leitura (`GET /tasks`, `GET /tasks/:id`) não expostos ainda — repo e service já suportam.
+
 ## Como adicionar um novo provider
 
 ### WhatsApp (ex.: WhatsMeow)
@@ -174,8 +207,9 @@ Todos os jobs seguem o formato:
 
 1. Adicionar o payload e o type literal em `src/jobs/types.ts`.
 2. Adicionar o `z.literal` + payload schema em `src/jobs/schemas.ts` e incluir no `discriminatedUnion`.
-3. Adicionar o case no switch de `src/worker/handler.ts`.
-4. Criar a action correspondente em `src/actions/{protocolo}/`.
+3. Adicionar o valor ao `taskTypeEnum` em `src/db/schema/tasks.ts` e gerar migration (`bunx drizzle-kit generate`).
+4. Adicionar o case no switch de `src/worker/handler.ts`.
+5. Criar a action correspondente em `src/actions/{protocolo}/`.
 
 ## Variáveis de ambiente
 

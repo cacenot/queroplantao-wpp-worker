@@ -1,10 +1,10 @@
 import { Elysia } from "elysia";
-import type { Publisher } from "rabbitmq-client";
 import { z } from "zod";
-import { env } from "../../config/env.ts";
 import { jobSchema } from "../../jobs/schemas.ts";
 import { logger } from "../../lib/logger.ts";
+import type { TaskService } from "../../services/task/index.ts";
 import { authPlugin } from "../plugins/auth.ts";
+import { enqueueErrorResponseSchema, enqueueResponseSchema } from "../schemas/tasks.ts";
 
 const batchSchema = z.array(jobSchema).min(1).max(1000);
 
@@ -59,38 +59,38 @@ async function parseJsonBodyWithLimit(request: Request): Promise<BodyParseResult
   }
 }
 
-export function tasksRoutes(publisher: Publisher) {
-  return new Elysia({ tags: ["tasks"] })
-    .use(authPlugin)
-    .post(
-      "/tasks",
-      async ({ request, set }) => {
-        const parsedBody = await parseJsonBodyWithLimit(request);
-        if (!parsedBody.success) {
-          set.status = parsedBody.status;
-          return { error: parsedBody.error };
-        }
-
-        const result = batchSchema.safeParse(parsedBody.data);
-        if (!result.success) {
-          set.status = 400;
-          return { error: "Validation failed", details: result.error.flatten() };
-        }
-
-        const jobs = result.data;
-
-        for (const job of jobs) {
-          await publisher.send({ routingKey: env.AMQP_QUEUE, durable: true }, job);
-        }
-
-        logger.info({ count: jobs.length }, "Batch de jobs publicado via HTTP");
-
-        set.status = 202;
-        return { accepted: jobs.length };
-      },
-      {
-        parse: "none",
-        detail: { summary: "Publica um batch de jobs no AMQP" },
+export function tasksRoutes(taskService: TaskService) {
+  return new Elysia({ tags: ["tasks"] }).use(authPlugin).post(
+    "/tasks",
+    async ({ request, set }) => {
+      const parsedBody = await parseJsonBodyWithLimit(request);
+      if (!parsedBody.success) {
+        set.status = parsedBody.status;
+        return { error: parsedBody.error };
       }
-    );
+
+      const result = batchSchema.safeParse(parsedBody.data);
+      if (!result.success) {
+        set.status = 400;
+        return { error: "Validation failed", details: result.error.flatten() };
+      }
+
+      const jobs = result.data;
+      const { accepted, duplicates } = await taskService.enqueue(jobs);
+
+      logger.info({ accepted, duplicates }, "Batch de jobs enfileirado via HTTP");
+
+      set.status = 202;
+      return { accepted, duplicates };
+    },
+    {
+      parse: "none",
+      response: {
+        202: enqueueResponseSchema,
+        400: enqueueErrorResponseSchema,
+        413: enqueueErrorResponseSchema,
+      },
+      detail: { summary: "Persiste e publica um batch de jobs no AMQP" },
+    }
+  );
 }

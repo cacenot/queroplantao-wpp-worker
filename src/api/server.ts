@@ -1,11 +1,9 @@
 import { swagger } from "@elysiajs/swagger";
 import { Elysia } from "elysia";
-import type { Publisher } from "rabbitmq-client";
 import { env } from "../config/env.ts";
-import type { Db } from "../db/client.ts";
-import { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
 import { logger } from "../lib/logger.ts";
-import { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
+import type { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
+import type { TaskService } from "../services/task/index.ts";
 import { providerInstancesRoutes } from "./routes/provider-instances.ts";
 import { tasksRoutes } from "./routes/tasks.ts";
 
@@ -14,11 +12,15 @@ export interface HttpServerHandle {
   port: number;
 }
 
-export function startHttpServer(
-  publisher: Publisher,
-  isHealthy: () => boolean,
-  db?: Db
-): HttpServerHandle {
+export interface HttpServerOptions {
+  taskService: TaskService;
+  instanceService?: MessagingProviderInstanceService;
+  isHealthy: () => boolean;
+}
+
+export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
+  const { taskService, instanceService, isHealthy } = options;
+
   const app = new Elysia()
     .use(
       swagger({
@@ -42,12 +44,9 @@ export function startHttpServer(
       if (!ok) set.status = 503;
       return { status: ok ? "ok" : "degraded" };
     })
-    .use(tasksRoutes(publisher));
+    .use(tasksRoutes(taskService));
 
-  if (db) {
-    const instanceService = new MessagingProviderInstanceService(
-      new MessagingProviderInstanceRepository(db)
-    );
+  if (instanceService) {
     app.use(providerInstancesRoutes(instanceService));
   }
 
