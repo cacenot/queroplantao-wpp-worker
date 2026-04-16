@@ -70,7 +70,7 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-let server: ReturnType<typeof Bun.serve>;
+let server: ReturnType<typeof startHttpServer>;
 let publisher: MockPublisher;
 let baseUrl: string;
 
@@ -81,8 +81,8 @@ beforeAll(() => {
   baseUrl = `http://localhost:${server.port}`;
 });
 
-afterAll(() => {
-  server.stop(true);
+afterAll(async () => {
+  await server.stop();
 });
 
 describe("POST /tasks", () => {

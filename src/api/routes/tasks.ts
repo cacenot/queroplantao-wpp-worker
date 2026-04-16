@@ -1,49 +1,30 @@
-import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
+import { Elysia } from "elysia";
 import type { Publisher } from "rabbitmq-client";
 import { z } from "zod";
 import { env } from "../../config/env.ts";
 import { jobSchema } from "../../jobs/schemas.ts";
 import { logger } from "../../lib/logger.ts";
+import { authPlugin } from "../plugins/auth.ts";
 
 const batchSchema = z.array(jobSchema).min(1).max(1000);
 
-const postTasksHeadersSchema = z.object({
-  "x-api-key": z.string().min(1),
-});
-
-const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2 MB
-
-function timingSafeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-
-  if (bufA.byteLength !== bufB.byteLength) {
-    cryptoTimingSafeEqual(bufA, bufA);
-    return false;
-  }
-
-  return cryptoTimingSafeEqual(bufA, bufB);
-}
-
-function json(body: unknown, status: number): Response {
-  return Response.json(body, { status });
-}
+const MAX_BODY_SIZE = 2 * 1024 * 1024;
 
 type BodyParseResult =
   | { success: true; data: unknown }
   | { success: false; status: 400 | 413; error: "Invalid JSON" | "Payload too large" };
 
-async function parseJsonBodyWithLimit(req: Request): Promise<BodyParseResult> {
-  const contentLength = Number(req.headers.get("content-length"));
+async function parseJsonBodyWithLimit(request: Request): Promise<BodyParseResult> {
+  const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_SIZE) {
     return { success: false, status: 413, error: "Payload too large" };
   }
 
-  if (!req.body) {
+  if (!request.body) {
     return { success: false, status: 400, error: "Invalid JSON" };
   }
 
-  const reader = req.body.getReader();
+  const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
 
@@ -78,34 +59,38 @@ async function parseJsonBodyWithLimit(req: Request): Promise<BodyParseResult> {
   }
 }
 
-export async function handleTasks(req: Request, publisher: Publisher): Promise<Response> {
-  const rawHeaders = { "x-api-key": req.headers.get("x-api-key") ?? "" };
-  const headersResult = postTasksHeadersSchema.safeParse(rawHeaders);
-  if (!headersResult.success) {
-    return json({ error: "Unauthorized" }, 401);
-  }
+export function tasksRoutes(publisher: Publisher) {
+  return new Elysia({ tags: ["tasks"] })
+    .use(authPlugin)
+    .post(
+      "/tasks",
+      async ({ request, set }) => {
+        const parsedBody = await parseJsonBodyWithLimit(request);
+        if (!parsedBody.success) {
+          set.status = parsedBody.status;
+          return { error: parsedBody.error };
+        }
 
-  if (!timingSafeEqual(headersResult.data["x-api-key"], env.HTTP_API_KEY)) {
-    return json({ error: "Unauthorized" }, 401);
-  }
+        const result = batchSchema.safeParse(parsedBody.data);
+        if (!result.success) {
+          set.status = 400;
+          return { error: "Validation failed", details: result.error.flatten() };
+        }
 
-  const parsedBody = await parseJsonBodyWithLimit(req);
-  if (!parsedBody.success) {
-    return json({ error: parsedBody.error }, parsedBody.status);
-  }
+        const jobs = result.data;
 
-  const result = batchSchema.safeParse(parsedBody.data);
-  if (!result.success) {
-    return json({ error: "Validation failed", details: result.error.flatten() }, 400);
-  }
+        for (const job of jobs) {
+          await publisher.send({ routingKey: env.AMQP_QUEUE, durable: true }, job);
+        }
 
-  const jobs = result.data;
+        logger.info({ count: jobs.length }, "Batch de jobs publicado via HTTP");
 
-  for (const job of jobs) {
-    await publisher.send({ routingKey: env.AMQP_QUEUE, durable: true }, job);
-  }
-
-  logger.info({ count: jobs.length }, "Batch de jobs publicado via HTTP");
-
-  return json({ accepted: jobs.length }, 202);
+        set.status = 202;
+        return { accepted: jobs.length };
+      },
+      {
+        parse: "none",
+        detail: { summary: "Publica um batch de jobs no AMQP" },
+      }
+    );
 }

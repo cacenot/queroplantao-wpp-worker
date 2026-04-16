@@ -6,7 +6,7 @@ Referência rápida para navegar o código e saber onde mexer. Se você nunca to
 
 O projeto é um **worker + API** que executa ações em plataformas de messaging (hoje WhatsApp via Z-API; em breve WhatsMeow, WhatsApp Business API e Telegram). Dois serviços independentes:
 
-- **API** (`src/api/`) — HTTP server que recebe tasks via `POST /tasks` e publica no RabbitMQ.
+- **API** (`src/api/`) — HTTP server (Elysia) que recebe tasks via `POST /tasks`, expõe CRUD de provider instances em `/providers/instances` e publica na fila AMQP. Documentação OpenAPI em `/docs`.
 - **Worker** (`src/worker/`) — consumer AMQP que executa cada job contra o provider correto, com rate limiting distribuído via Redis.
 
 Rodam em containers separados (`docker-compose.api.yml` e `docker-compose.worker.yml`), compartilham o mesmo código.
@@ -57,8 +57,10 @@ A pasta `src/api/routes/webhooks/` está pronta; os handlers específicos são u
 
 | Pasta | Dono de | NÃO deve conter |
 |---|---|---|
-| `src/api/` | Entry point da API, `Bun.serve`, autenticação, parsing, roteamento por path. | Regra de negócio, acesso a messaging provider, acesso a DB. |
-| `src/api/routes/` | Um arquivo por rota (`tasks.ts`, `webhooks/{provider}.ts`). Validação Zod, publish no AMQP. | Código compartilhado entre rotas (extrair para `src/lib/`). |
+| `src/api/` | Entry point da API (Elysia), plugins compartilhados (auth), swagger em `/docs`. | Regra de negócio, acesso a messaging provider. |
+| `src/api/plugins/` | Plugins Elysia reutilizáveis (ex.: `auth.ts`). | Lógica de rota. |
+| `src/api/routes/` | Um arquivo por grupo de rotas (`tasks.ts`, `provider-instances.ts`, `webhooks/{provider}.ts`). Validação (Zod para `/tasks`, TypeBox para o restante), publish no AMQP. | Código compartilhado entre rotas (extrair para `src/lib/`). |
+| `src/api/schemas/` | Schemas TypeBox reutilizáveis consumidos pelas rotas Elysia. Gera OpenAPI automaticamente. | Validação de domínio (fica em Zod). |
 | `src/worker/` | Entry point do worker, consumer AMQP, health check, `handler.ts` (router job → action). | HTTP server, providers. |
 | `src/messaging/` | Abstração cross-protocol: interface base, `ProviderGateway<T>`. | Lógica de negócio, conhecimento de jobs/AMQP. |
 | `src/messaging/{protocol}/` | Interface do protocolo (`WhatsAppProvider`, `TelegramProvider`) e payloads. | |
@@ -67,7 +69,8 @@ A pasta `src/api/routes/webhooks/` está pronta; os handlers específicos são u
 | `src/ai/` | Modelos e classificador LLM. | Lógica de ação. |
 | `src/jobs/` | Types e schemas Zod dos jobs que trafegam no AMQP. | Lógica de execução. |
 | `src/db/` | Conexão Postgres, schema Drizzle e migrations. | Lógica de domínio e regras de negócio. |
-| `src/services/` | Services de aplicação para leitura/escrita de dados e integração entre infra e domínio. | Entry points HTTP/AMQP e providers concretos. |
+| `src/db/repositories/` | Acesso bruto a tabelas Drizzle. Retorna tipos de DB. Sem regra de negócio. | Regras de negócio, orquestração. |
+| `src/services/` | Services de aplicação para leitura/escrita de dados, transações, regras de negócio, DTOs. | Entry points HTTP/AMQP e providers concretos. |
 | `src/lib/` | Infra compartilhada: AMQP, Redis, logger, clients HTTP externos. | Lógica de domínio. |
 | `src/config/` | `env.ts` — parse e validação de variáveis. | |
 | `src/scripts/` | Scripts auxiliares (spam watcher, bulk remove, moderação offline). | |
@@ -94,6 +97,8 @@ O bootstrap dos providers começou a migrar de env vars para banco.
 - As tabelas `zapi_instance_connection_events` e `zapi_instance_device_snapshots` são append-only e preservam histórico para futuros webhooks e sincronizações.
 - O `Client-Token` da Z-API **não** fica no banco. Ele é um segredo compartilhado por integração e fica em `ZAPI_CLIENT_TOKEN` na env.
 - Enquanto a migração não termina, `ZAPI_INSTANCES` continua existindo como fallback legado no worker.
+- CRUD via HTTP: `MessagingProviderInstanceService` (`src/services/messaging-provider-instance/`) é o caminho de escrita. `ProviderRegistryReadService` agora delega ao `MessagingProviderInstanceRepository` e continua sendo o caminho de leitura usado pelo worker no bootstrap.
+- Mudanças via API só efetivam no worker no próximo restart — ver `docs/provider-gateway.md`.
 
 Detalhes operacionais do gateway e da lease distribuída: `docs/provider-gateway.md`.
 
@@ -203,9 +208,13 @@ Schema completo e validação: `src/config/env.ts`.
 
 WhatsApp e Telegram compartilham conceitos mas não primitivas. Uma interface única teria que aceitar tanto `phone` quanto `chat_id`, expor ou esconder capacidades por feature flag, e vazaria abstração nas actions. Separar evita isso; o que é comum (rate limiter) vive em `ProviderGateway<T>` genérico.
 
-### `Bun.serve` puro, sem framework HTTP
+### Elysia como framework HTTP
 
-Com 2 rotas, um framework (Hono, Elysia) é overhead sem ganho. A estrutura atual já separa cada rota em um arquivo (`src/api/routes/tasks.ts`, `webhooks/*.ts`), então migrar para Hono depois é trocar o dispatcher em `src/api/server.ts` — cada arquivo de rota vira um `app.route(...)`. Migração planejada para quando tivermos mais rotas.
+Antes usávamos `Bun.serve` puro com 2 rotas. Com a adição do CRUD de provider instances passamos para 7+ rotas e precisamos de OpenAPI para o serviço consumidor. Elysia roda nativamente em Bun, gera OpenAPI a partir de schemas TypeBox e tem suporte de `@elysiajs/swagger` em `/docs` sem overhead significativo. Rotas ficam em arquivos separados (`src/api/routes/*.ts`), cada um exportando uma função que retorna um `new Elysia()` plugável via `.use(...)` no `src/api/server.ts`.
+
+### Validação: Zod para domínio, TypeBox para I/O HTTP
+
+Zod continua sendo a ferramenta padrão para validação de domínio (`src/jobs/schemas.ts`, `src/services/provider-registry/zod.ts`, `src/config/env.ts`). Para as novas rotas Elysia usamos TypeBox (`import { t } from "elysia"`) porque é o que alimenta a geração automática do OpenAPI. A rota `POST /tasks` mantém Zod por hora — a complexidade do `discriminatedUnion` dos jobs não compensa a migração para TypeBox só para OpenAPI dessa rota específica.
 
 ### Webhooks inbound como rotas HTTP, não módulo à parte
 

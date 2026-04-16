@@ -1,12 +1,15 @@
-# HTTP API - Tasks Ingestion
+# HTTP API
 
 ## Visao geral
 
-Este worker expõe um endpoint HTTP para receber batches de tasks e publicar cada task na fila AMQP configurada.
+A API roda em Elysia sobre Bun.serve e expõe:
 
-- Rota de ingestao: `POST /tasks`
-- Rota de healthcheck: `GET /health`
-- Porta default: `3000` (configuravel via `HTTP_PORT`)
+- `POST /tasks` — ingestão de batches de jobs para o AMQP
+- `GET /health` — healthcheck (sem autenticação)
+- `GET /docs` — Swagger UI / OpenAPI (sem autenticação)
+- `POST|GET|PATCH /providers/instances` — CRUD de provider instances (registry Z-API)
+
+Porta default: `3000` (configurável via `HTTP_PORT`).
 
 ## Autenticacao
 
@@ -198,6 +201,135 @@ Resposta esperada:
 { "accepted": 3 }
 ```
 
+## Provider Instances
+
+Todos os endpoints abaixo exigem o header `x-api-key` (mesma chave de `/tasks`, valor em `HTTP_API_KEY`).
+
+**Importante:** alterações via API efetivam apenas no próximo restart do worker. O `ProviderGateway` lê o registry apenas no bootstrap. As respostas de `create`, `enable` e `disable` retornam um campo `warning` explicando isso.
+
+### `POST /providers/instances`
+
+Cria uma instância Z-API no registry. Executa as inserções em `messaging_provider_instances` e `zapi_instances` dentro de uma única transação.
+
+Request body:
+
+```json
+{
+  "displayName": "inst-01",
+  "zapiInstanceId": "3D1A...",
+  "instanceToken": "token-secreto-da-instancia",
+  "webhookBaseUrl": "https://wpp-api.qp.internal",
+  "executionStrategy": "leased",
+  "redisKey": "messaging:whatsapp",
+  "cooldownMinMs": 500,
+  "cooldownMaxMs": 1800,
+  "safetyTtlMs": 120000,
+  "heartbeatIntervalMs": 30000
+}
+```
+
+Campos obrigatórios: `displayName`, `zapiInstanceId`, `instanceToken`. Demais são opcionais.
+
+Response `201 Created`:
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "protocol": "whatsapp",
+    "providerKind": "whatsapp_zapi",
+    "displayName": "inst-01",
+    "isEnabled": true,
+    "executionStrategy": "leased",
+    "redisKey": "messaging:whatsapp",
+    "cooldownMinMs": 500,
+    "cooldownMaxMs": 1800,
+    "safetyTtlMs": 120000,
+    "heartbeatIntervalMs": 30000,
+    "createdAt": "2026-04-16T12:00:00.000Z",
+    "updatedAt": "2026-04-16T12:00:00.000Z",
+    "archivedAt": null,
+    "zapi": {
+      "zapiInstanceId": "3D1A...",
+      "instanceTokenMasked": "toke...ncia",
+      "webhookBaseUrl": "https://wpp-api.qp.internal",
+      "currentConnectionState": null,
+      "currentConnected": null,
+      "currentPhoneNumber": null,
+      "lastStatusSyncedAt": null
+    }
+  },
+  "warning": "A instância só será utilizada pelo worker após o próximo restart."
+}
+```
+
+Erros:
+
+- `401 Unauthorized` — chave ausente/errada
+- `409 Conflict` — `zapiInstanceId` já cadastrado
+- `422 Unprocessable Entity` — body inválido (shape conferido pelo TypeBox)
+
+O `instanceToken` em claro **nunca** aparece na resposta. `instanceTokenMasked` mostra os 4 primeiros + `...` + 4 últimos caracteres; `****` para tokens curtos.
+
+### `GET /providers/instances/:id`
+
+Retorna a instância. `instanceToken` mascarado.
+
+- `200 OK` — `{ "data": InstanceView }`
+- `404 Not Found` — id não existe
+- `422 Unprocessable Entity` — id não é UUID
+
+### `GET /providers/instances`
+
+Lista paginada com filtros.
+
+Query params:
+
+- `limit` — default `20`, clamp `[1, 100]`
+- `offset` — default `0`, min `0`
+- `protocol` — `whatsapp | telegram` (opcional)
+- `providerKind` — `whatsapp_zapi | whatsapp_whatsmeow | whatsapp_business_api | telegram_bot` (opcional)
+- `isEnabled` — `true | false` (opcional)
+
+Response `200 OK`:
+
+```json
+{
+  "data": [ /* InstanceView[] */ ],
+  "pagination": { "limit": 20, "offset": 0, "total": 42 }
+}
+```
+
+### `PATCH /providers/instances/:id/enable`
+
+Marca a instância como habilitada. Idempotente: segunda chamada em instância já habilitada retorna `200` com o estado atual e sem alterar `updatedAt`.
+
+Response `200 OK`: `{ "data": InstanceView, "warning": "..." }`.
+Erro `404 Not Found` se id não existe.
+
+### `PATCH /providers/instances/:id/disable`
+
+Mesma semântica, invertida.
+
+### Exemplos curl
+
+```bash
+# create
+curl -X POST http://localhost:3000/providers/instances \
+  -H "x-api-key: $HTTP_API_KEY" -H "content-type: application/json" \
+  -d '{"displayName":"inst-01","zapiInstanceId":"i1","instanceToken":"supersecret1234"}'
+
+# list
+curl -H "x-api-key: $HTTP_API_KEY" "http://localhost:3000/providers/instances?limit=10&isEnabled=true"
+
+# get
+curl -H "x-api-key: $HTTP_API_KEY" http://localhost:3000/providers/instances/$ID
+
+# disable / enable
+curl -X PATCH -H "x-api-key: $HTTP_API_KEY" http://localhost:3000/providers/instances/$ID/disable
+curl -X PATCH -H "x-api-key: $HTTP_API_KEY" http://localhost:3000/providers/instances/$ID/enable
+```
+
 ## Rota de healthcheck
 
 `GET /health` nao exige autenticacao.
@@ -269,10 +401,10 @@ bun test
 
 ## Validação
 
-Toda a validação de request é feita com [zod](https://zod.dev/):
+- **Headers**: `x-api-key` comparado com `timingSafeEqual` contra `HTTP_API_KEY`. Plugin compartilhado em `src/api/plugins/auth.ts`.
+- **Body de `/tasks`**: array de jobs validado via `z.discriminatedUnion` pelo campo `type`. Zod mantido porque o discriminado não se traduz bem para TypeBox. Limites: 1-1000 jobs por batch, payload máximo de 2 MB.
+- **Body e query de `/providers/instances`**: schemas TypeBox (`src/api/schemas/provider-instances.ts`) que alimentam o OpenAPI do swagger. Validação falhando retorna `422 Unprocessable Entity`.
 
-- **Headers**: `x-api-key` validado como string não vazia via schema zod, seguido de comparação timing-safe contra `HTTP_API_KEY`
-- **Body**: array de jobs validado via `z.discriminatedUnion` pelo campo `type`
-- **Limites**: 1-1000 jobs por batch, payload máximo de 2 MB
-- Se `sendToQueue` reportar backpressure (`false`), um warning e logado.
-- O endpoint continua retornando `202` quando o batch e aceito.
+## OpenAPI / Swagger
+
+Swagger UI disponível em `GET /docs`. Definição gerada automaticamente a partir dos schemas TypeBox das rotas. Sem autenticação.

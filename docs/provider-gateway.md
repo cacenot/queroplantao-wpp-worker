@@ -88,11 +88,22 @@ O snapshot atual da Z-API vive em `zapi_instances`, mas a observabilidade de web
 
 `last_webhook_received_at` não deve existir em `zapi_instances`, porque webhooks de alta frequência transformariam a row de snapshot em hot row de update sem ganho real. O campo `received_at` nos eventos históricos já cobre esse caso.
 
+## Mutação via HTTP
+
+A API expõe `POST`/`GET`/`PATCH /providers/instances` para criar, consultar, habilitar e desabilitar provider instances.
+
+- As rotas escrevem apenas no banco (`messaging_provider_instances` + `zapi_instances`).
+- O worker lê o registry **apenas no bootstrap**. A lista de providers do `ProviderGateway` é imutável em runtime.
+- Portanto, habilitar/desabilitar/criar via HTTP **só entra em vigor no próximo restart do worker**. As respostas dos endpoints retornam um campo `warning` explicitando isso.
+- Um provider desabilitado continua executando jobs até o restart porque a lease no Redis permanece válida.
+- Runtime reload (via Redis pub/sub notificando os workers) é trabalho futuro.
+
 ## Limites e trade-offs
 
 - `leased` garante exclusão distribuída enquanto heartbeat e Redis estiverem saudáveis
 - o gateway não cancela callbacks em andamento se a lease for perdida; ele apenas evita que um stale release corrompa o estado seguinte
 - `passthrough` não tenta impor nenhuma forma de serialização distribuída
+- CRUD via HTTP depende de restart do worker para efetivar — ver "Mutação via HTTP" acima
 
 ## Arquivos principais
 
