@@ -64,6 +64,10 @@ export class TaskService {
     return this.repo.claimForExecution(id);
   }
 
+  async markRetrying(id: string): Promise<boolean> {
+    return this.repo.markRetrying(id);
+  }
+
   async markSucceeded(id: string): Promise<void> {
     await this.repo.markSucceeded(id);
   }

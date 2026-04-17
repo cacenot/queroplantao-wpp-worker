@@ -14,9 +14,7 @@ export interface MessagingPassthroughExecution {
   kind: "passthrough";
 }
 
-export type MessagingProviderExecution =
-  | MessagingLeasedExecution
-  | MessagingPassthroughExecution;
+export type MessagingProviderExecution = MessagingLeasedExecution | MessagingPassthroughExecution;
 
 export interface MessagingProvider {
   readonly instance: MessagingInstance;

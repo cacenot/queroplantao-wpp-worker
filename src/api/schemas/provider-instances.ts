@@ -46,9 +46,7 @@ export const createZApiInstanceBodySchema = t.Object({
   zapiInstanceId: t.String({ minLength: 1 }),
   instanceToken: t.String({ minLength: 1 }),
   webhookBaseUrl: t.Optional(t.String({ format: "uri" })),
-  executionStrategy: t.Optional(
-    t.Union([t.Literal("leased"), t.Literal("passthrough")])
-  ),
+  executionStrategy: t.Optional(t.Union([t.Literal("leased"), t.Literal("passthrough")])),
   redisKey: t.Optional(t.String({ minLength: 1 })),
   cooldownMinMs: t.Optional(t.Integer({ minimum: 0 })),
   cooldownMaxMs: t.Optional(t.Integer({ minimum: 0 })),

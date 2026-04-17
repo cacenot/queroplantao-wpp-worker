@@ -153,7 +153,9 @@ function resolveProviderExecution(
   const cooldownMaxMs = execution?.cooldownMaxMs ?? defaults.cooldownMaxMs;
   const safetyTtlMs = execution?.safetyTtlMs ?? defaults.safetyTtlMs;
   const heartbeatIntervalMs =
-    execution?.heartbeatIntervalMs ?? defaults.heartbeatIntervalMs ?? deriveHeartbeatInterval(safetyTtlMs);
+    execution?.heartbeatIntervalMs ??
+    defaults.heartbeatIntervalMs ??
+    deriveHeartbeatInterval(safetyTtlMs);
 
   validateCooldownRange(cooldownMinMs, cooldownMaxMs, `Provider ${providerId}`);
 
@@ -268,7 +270,9 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     this.heartbeatIntervalMs = defaultHeartbeatIntervalMs;
     this.pollIntervalMs = pollIntervalMs;
 
-    const leasedProviders = providerEntries.filter((entry) => entry.execution.kind === "leased").length;
+    const leasedProviders = providerEntries.filter(
+      (entry) => entry.execution.kind === "leased"
+    ).length;
     const passthroughProviders = providerEntries.length - leasedProviders;
 
     logger.info(
@@ -291,7 +295,10 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     const leasedProviders = this.providerOrder.filter((entry) => entry.execution.kind === "leased");
 
     if (leasedProviders.length === 0) {
-      logger.info({ redisKey: this.redisKey }, "Gateway sem providers leased — registro no Redis ignorado");
+      logger.info(
+        { redisKey: this.redisKey },
+        "Gateway sem providers leased — registro no Redis ignorado"
+      );
       return;
     }
 

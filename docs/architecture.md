@@ -96,7 +96,7 @@ O bootstrap dos providers começou a migrar de env vars para banco.
 - A tabela `zapi_instances` guarda o que é específico da Z-API por instância: `zapi_instance_id`, `instance_token` e o snapshot atual de conexão/device.
 - As tabelas `zapi_instance_connection_events` e `zapi_instance_device_snapshots` são append-only e preservam histórico para futuros webhooks e sincronizações.
 - O `Client-Token` da Z-API **não** fica no banco. Ele é um segredo compartilhado por integração e fica em `ZAPI_CLIENT_TOKEN` na env.
-- Enquanto a migração não termina, `ZAPI_INSTANCES` continua existindo como fallback legado no worker.
+- A migração de env vars para banco está completa: o worker carrega instâncias exclusivamente do banco via `ProviderRegistryReadService`.
 - CRUD via HTTP: `MessagingProviderInstanceService` (`src/services/messaging-provider-instance/`) é o caminho de escrita. `ProviderRegistryReadService` agora delega ao `MessagingProviderInstanceRepository` e continua sendo o caminho de leitura usado pelo worker no bootstrap.
 - Mudanças via API só efetivam no worker no próximo restart — ver `docs/provider-gateway.md`.
 
@@ -109,13 +109,16 @@ Cada job publicado no AMQP é persistido como uma linha na tabela `tasks` antes 
 ### Ciclo de vida
 
 ```
-pending → queued → running → succeeded | failed
-                                        ↳ dropped (schema inválido no worker)
+pending → queued → running → succeeded
+                     │      ↳ failed     (tentativas esgotadas ou NonRetryableError → DLQ)
+                     │      ↳ dropped    (schema inválido no worker)
+                     ↑
+                  queued ←─ running (retry: attempt ≤ maxAttempts)
 ```
 
 - **pending**: inserido no DB, ainda não confirmado pelo broker.
-- **queued**: `publisher.send` retornou com sucesso (broker ack via `confirm: true`).
-- **running**: worker reivindicou a task (`claimForExecution` faz UPDATE atômico com `status IN ('queued','pending')`).
+- **queued**: `publisher.send` retornou com sucesso (broker ack via `confirm: true`). Também é o estado de retorno após um retry (`markRetrying`: `running → queued`).
+- **running**: worker reivindicou a task (`claimForExecution` faz UPDATE atômico com `status IN ('queued','pending')`, incrementa `attempt`).
 - **succeeded / failed**: terminal. Worker atualiza após executar a action.
 - **dropped**: job com schema inválido recebido pelo worker (defensivo).
 
@@ -129,10 +132,46 @@ pending → queued → running → succeeded | failed
 - Escritas de estado no worker são **best-effort**: se o UPDATE falha após a action executar, o job já foi processado; logamos warn e seguimos (evita re-execução).
 - Tasks que ficam em `pending` (API crashou entre INSERT e publish) são detectáveis por query: `status = 'pending' AND created_at < now() - interval '5 minutes'`. O reaper automático é um follow-up planejado.
 
+### Retry e DLQ
+
+Erros de execução disparam retry via TTL+DLX nativo do LavinMQ/RabbitMQ. O número máximo de retries é configurável via `AMQP_RETRY_MAX_RETRIES`; o delay entre cada tentativa, via `AMQP_RETRY_DELAY_MS`.
+
+**Filas declaradas no startup** (`src/lib/retry-topology.ts`):
+
+```
+wpp.actions.retry    (x-message-ttl: AMQP_RETRY_DELAY_MS → wpp.actions)
+wpp.actions.dlq      (sem TTL — inspeção e replay manual)
+```
+
+Uma única fila de retry com TTL fixo. LavinMQ/RabbitMQ sofre head-of-line blocking em per-message TTL, o que inviabiliza backoff exponencial numa fila única. Se precisar de backoff exponencial no futuro, voltar a N filas dedicadas.
+
+**Fluxo por cenário:**
+
+| Cenário | DB | AMQP |
+|---|---|---|
+| Schema inválido | `→ dropped` | DROP |
+| Erro, `attempt ≤ maxRetries`, retryable | `running → queued` | publica em `retry`, DROP original |
+| Erro, `attempt > maxRetries` | `running → failed` | publica em DLQ, DROP |
+| `NonRetryableError` | `running → failed` | publica em DLQ, DROP |
+| Publish retry/DLQ falha | `running → queued` | REQUEUE original |
+
+Para marcar um erro como permanente (sem retry), lançar `NonRetryableError` de `src/lib/errors.ts`.
+
+> **Atenção ao alterar o TTL em produção:** mudar `AMQP_RETRY_DELAY_MS` com a fila `wpp.actions.retry` já declarada dispara `PRECONDITION_FAILED` no bootstrap. Delete a fila via `rabbitmqadmin` antes do deploy, ou versione o nome (`wpp.actions.retry.v2`).
+
+**Debug:**
+
+```bash
+# Inspecionar DLQ
+rabbitmqadmin get queue=wpp.actions.dlq count=10
+
+# Ver mensagens aguardando retry
+rabbitmqadmin get queue=wpp.actions.retry count=10
+```
+
 ### Limitações atuais
 
 - Sem reaper automático para tasks órfãs em `pending`/`running`.
-- Sem retry controlado / DLQ (o campo `attempt` já é incrementado pelo `claimForExecution`; falta o mecanismo de re-publish).
 - Endpoints HTTP de leitura (`GET /tasks`, `GET /tasks/:id`) não expostos ainda — repo e service já suportam.
 
 ## Como adicionar um novo provider
@@ -199,7 +238,7 @@ Todos os jobs seguem o formato:
   type: "{protocolo}.{ação}";  // ex.: "whatsapp.delete_message"
   createdAt: string;           // ISO-8601 UTC
   payload: { ... };            // específico por type
-  attempt?: number;            // opcional, para retry controlado (não implementado ainda)
+  attempt?: number;            // tentativa atual (incrementado pelo worker a cada redelivery)
 }
 ```
 
@@ -219,9 +258,11 @@ Todos os jobs seguem o formato:
 | `AMQP_URL` | string (URL) | — | API + Worker |
 | `AMQP_QUEUE` | string | — | API + Worker |
 | `AMQP_PREFETCH` | number | 5 | Worker |
+| `AMQP_RETRY_DELAY_MS` | number (ms) | `120000` | Worker |
+| `AMQP_RETRY_MAX_RETRIES` | number | `3` | Worker |
+| `AMQP_DLQ_NAME` | string | `${AMQP_QUEUE}.dlq` | Worker |
 | `ZAPI_BASE_URL` | string (URL) | — | Worker |
 | `ZAPI_CLIENT_TOKEN` | string | — | Worker |
-| `ZAPI_INSTANCES` | JSON array | — | Worker (fallback legado durante migração) |
 | `ZAPI_DELAY_MIN_MS` | number | 500 | Worker |
 | `ZAPI_DELAY_MAX_MS` | number | 1800 | Worker |
 | `REDIS_URL` | string (URL) | — | Worker |
@@ -262,6 +303,12 @@ Múltiplos workers precisam compartilhar o estado de disponibilidade das instân
 
 Permite ter `delete_message` tanto para WhatsApp quanto Telegram no futuro sem colisão. O router em `handler.ts` usa o discriminated union do Zod para despachar type-safe.
 
-### Sem retry/DLQ implementado ainda
+### Retry com fila única + TTL fixo (sem backoff exponencial)
 
-Política atual: job com schema inválido ou que lance erro → `ConsumerStatus.DROP` (descarta). TODO em `src/worker/handler.ts` marca o ponto de implementar retry controlado com incremento de `attempt` e DLQ. Aceitável enquanto o projeto está em desenvolvimento.
+O retry usa o padrão nativo do LavinMQ/RabbitMQ: uma fila de delay com `x-message-ttl` e `x-dead-letter-routing-key` apontando de volta para a fila principal. Não requer plugin de delayed messages — funciona com qualquer broker AMQP-compatível.
+
+Optamos por **uma única fila** com TTL fixo em vez de múltiplas filas com backoff exponencial. Motivo: LavinMQ (e RabbitMQ) sofre de head-of-line blocking em per-message TTL — mensagens só expiram a partir do head da fila, o que força um TTL uniforme. Múltiplas filas dedicadas (ex.: `retry.1 → 30s`, `retry.2 → 2min`) resolveriam, mas operacionalmente é mais infra para pouca vantagem enquanto a maior parte das falhas se resolve em poucos minutos.
+
+Alternativa considerada: retry database-driven via reaper que re-enfileira tasks `failed`. Descartada porque exigiria polling periódico e introduziria latência variável. O padrão TTL+DLX é determinístico e operado inteiramente pelo broker.
+
+`NonRetryableError` em `src/lib/errors.ts` permite que qualquer action sinalize falha permanente (ex.: número inexistente, payload semanticamente inválido) e vá direto ao DLQ sem consumir tentativas.

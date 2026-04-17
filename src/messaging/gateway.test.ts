@@ -34,7 +34,11 @@ class FakeRedis {
     return new FakePipeline(this);
   }
 
-  async eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<string | null> {
+  async eval(
+    script: string,
+    numKeys: number,
+    ...args: Array<string | number>
+  ): Promise<string | null> {
     this.evalCalls += 1;
 
     const keys = args.slice(0, numKeys).map(String);
@@ -292,12 +296,7 @@ describe("ProviderGateway", () => {
       });
     }
 
-    expect(usedProviders).toEqual([
-      "leased-1",
-      "passthrough-1",
-      "leased-1",
-      "passthrough-1",
-    ]);
+    expect(usedProviders).toEqual(["leased-1", "passthrough-1", "leased-1", "passthrough-1"]);
   });
 
   it("renova a lease por heartbeat e evita dupla aquisição em job longo", async () => {

@@ -7,8 +7,21 @@ const envSchema = z.object({
   AMQP_QUEUE: z.string().min(1),
   AMQP_PREFETCH: z.coerce.number().int().positive().default(5),
 
+  // TTL (ms) da fila de retry. Todo retry espera este delay antes de voltar à fila principal.
+  AMQP_RETRY_DELAY_MS: z.coerce.number().int().positive().default(120000),
+
+  // Número máximo de retries antes do DLQ. Total de execuções = maxRetries + 1.
+  AMQP_RETRY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
+
+  // Nome da fila de mensagens mortas. Default: ${AMQP_QUEUE}.dlq
+  AMQP_DLQ_NAME: z.string().optional(),
+
   ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),
   ZAPI_CLIENT_TOKEN: z.string().min(1, { message: "ZAPI_CLIENT_TOKEN é obrigatória" }),
+
+  // Delay aleatório (ms) entre requisições Z-API — cria jitter para evitar rajadas
+  ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(2500),
+  ZAPI_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(5200),
 
   // Redis — usado para coordenar rate limiting distribuído entre workers
   REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),

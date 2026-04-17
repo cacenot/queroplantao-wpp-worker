@@ -71,9 +71,7 @@ export const messagingProviderInstances = pgTable(
       table.protocol,
       table.isEnabled
     ),
-    providerKindIdx: index("messaging_provider_instances_provider_kind_idx").on(
-      table.providerKind
-    ),
+    providerKindIdx: index("messaging_provider_instances_provider_kind_idx").on(table.providerKind),
   })
 );
 
@@ -131,9 +129,7 @@ export const zapiInstanceConnectionEvents = pgTable(
       table.messagingProviderInstanceId,
       table.receivedAt
     ),
-    dedupeKeyIdx: uniqueIndex("zapi_instance_connection_events_dedupe_key_idx").on(
-      table.dedupeKey
-    ),
+    dedupeKeyIdx: uniqueIndex("zapi_instance_connection_events_dedupe_key_idx").on(table.dedupeKey),
   })
 );
 

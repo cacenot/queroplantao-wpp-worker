@@ -18,9 +18,9 @@ process.env.QP_ADMIN_API_TOKEN = "admin-token";
 const { Elysia } = await import("elysia");
 const { randomUUID } = await import("node:crypto");
 const { providerInstancesRoutes } = await import("./provider-instances.ts");
-const {
-  MessagingProviderInstanceService,
-} = await import("../../services/messaging-provider-instance/index.ts");
+const { MessagingProviderInstanceService } = await import(
+  "../../services/messaging-provider-instance/index.ts"
+);
 
 import type {
   EnabledZApiRow,

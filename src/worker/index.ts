@@ -7,6 +7,7 @@ import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import { createRedisConnection } from "../lib/redis.ts";
+import { declareRetryTopology } from "../lib/retry-topology.ts";
 import { ProviderGateway } from "../messaging/gateway.ts";
 import type { MessagingProviderExecution } from "../messaging/types.ts";
 import { createZApiProviders } from "../messaging/whatsapp/zapi/provider.ts";
@@ -36,35 +37,21 @@ function mapExecutionStrategy(instance: {
 }
 
 async function loadZApiProviderConfigs(db: Db): Promise<ZApiInstanceConfig[]> {
-  try {
-    const registry = new ProviderRegistryReadService(db);
-    const instances = await registry.listEnabledZApiInstances();
+  const registry = new ProviderRegistryReadService(db);
+  const instances = await registry.listEnabledZApiInstances();
 
-    if (instances.length > 0) {
-      logger.info({ count: instances.length }, "Instâncias Z-API carregadas do banco");
-
-      return instances.map((instance) => ({
-        instance_id: instance.instanceId,
-        instance_token: instance.instanceToken,
-        client_token: env.ZAPI_CLIENT_TOKEN,
-        execution: mapExecutionStrategy(instance),
-      }));
-    }
-
-    if (env.ZAPI_INSTANCES.length > 0) {
-      logger.warn("Nenhuma instância Z-API habilitada encontrada no banco; usando fallback da env");
-      return env.ZAPI_INSTANCES;
-    }
-
+  if (instances.length === 0) {
     throw new Error("Nenhuma instância Z-API habilitada encontrada no banco");
-  } catch (err) {
-    if (env.ZAPI_INSTANCES.length > 0) {
-      logger.warn({ err }, "Falha ao carregar instâncias Z-API do banco; usando fallback da env");
-      return env.ZAPI_INSTANCES;
-    }
-
-    throw err;
   }
+
+  logger.info({ count: instances.length }, "Instâncias Z-API carregadas do banco");
+
+  return instances.map((instance) => ({
+    instance_id: instance.instanceId,
+    instance_token: instance.instanceToken,
+    client_token: env.ZAPI_CLIENT_TOKEN,
+    execution: mapExecutionStrategy(instance),
+  }));
 }
 
 async function main() {
@@ -87,6 +74,10 @@ async function main() {
 
   const rabbit = createAmqpConnection();
 
+  const topology = await declareRetryTopology(rabbit);
+
+  const retryPublisher = rabbit.createPublisher({ confirm: true, maxAttempts: 2 });
+
   const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
   const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
 
@@ -106,6 +97,8 @@ async function main() {
     classifyMessage: (text) => classifyMessage(text, analyzeMessageModel),
     adminApi,
     taskService,
+    publisher: retryPublisher,
+    topology,
     onSuccess: () => {
       healthy = true;
     },
@@ -148,6 +141,7 @@ async function main() {
     try {
       healthServer.stop();
       await consumer.close();
+      await retryPublisher.close();
       await rabbit.close();
       await sql.end();
       redis.disconnect();

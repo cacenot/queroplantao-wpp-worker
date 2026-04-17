@@ -1,12 +1,14 @@
-import type { AsyncMessage } from "rabbitmq-client";
+import type { AsyncMessage, Publisher } from "rabbitmq-client";
 import { ConsumerStatus } from "rabbitmq-client";
 import { analyzeMessage } from "../actions/whatsapp/analyze-message.ts";
 import { deleteMessage } from "../actions/whatsapp/delete-message.ts";
 import { removeParticipant } from "../actions/whatsapp/remove-participant.ts";
 import type { MessageAnalysis } from "../ai/moderator.ts";
 import { jobSchema } from "../jobs/schemas.ts";
+import { NonRetryableError } from "../lib/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
+import type { RetryTopology } from "../lib/retry-topology.ts";
 import type { WhatsAppExecutor } from "../messaging/whatsapp/types.ts";
 import type { TaskService } from "../services/task/index.ts";
 
@@ -17,11 +19,21 @@ interface JobHandlerOptions {
   classifyMessage: ClassifyFn;
   adminApi: QpAdminApiClient;
   taskService: TaskService;
+  publisher: Publisher;
+  topology: RetryTopology;
   onSuccess?: () => void;
 }
 
 export function createJobHandler(options: JobHandlerOptions) {
-  const { whatsappGateway, classifyMessage, adminApi, taskService, onSuccess } = options;
+  const {
+    whatsappGateway,
+    classifyMessage,
+    adminApi,
+    taskService,
+    publisher,
+    topology,
+    onSuccess,
+  } = options;
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     const parseResult = jobSchema.safeParse(msg.body);
@@ -52,7 +64,11 @@ export function createJobHandler(options: JobHandlerOptions) {
       return ConsumerStatus.DROP;
     }
 
-    jobLog.info("Job recebido — executando");
+    // attempt reflete o contador APÓS incremento do claimForExecution (começa em 1).
+    // No fallback, confia no campo attempt da mensagem (melhor estimativa disponível).
+    const attemptNumber = claimed === "fallback" ? (job.attempt ?? 1) : claimed.attempt;
+
+    jobLog.info({ attempt: attemptNumber }, "Job recebido — executando");
 
     try {
       switch (job.type) {
@@ -73,7 +89,61 @@ export function createJobHandler(options: JobHandlerOptions) {
       });
       onSuccess?.();
     } catch (err) {
-      jobLog.error({ err, attempt: job.attempt }, "Erro ao executar job");
+      const isNonRetryable = err instanceof NonRetryableError;
+      const retriesUsed = attemptNumber - 1;
+      const canRetry = !isNonRetryable && retriesUsed < topology.maxRetries;
+
+      if (canRetry) {
+        jobLog.warn(
+          { err, attempt: attemptNumber, retryQueue: topology.retryQueue },
+          "Erro ao executar job — agendando retry"
+        );
+
+        try {
+          await publisher.send(
+            // `durable: true` no publisher.send é o alias do rabbitmq-client para
+            // deliveryMode=2 (mensagem persistente — sobrevive a restart do broker)
+            { routingKey: topology.retryQueue, durable: true },
+            { ...job, attempt: attemptNumber }
+          );
+          await taskService.markRetrying(job.id).catch((e) => {
+            jobLog.warn({ err: e }, "Falha ao marcar task retrying — status pode ficar running");
+          });
+        } catch (publishErr) {
+          // Não conseguiu publicar na retry queue: requeue da mensagem original
+          // para não perder o job. claimForExecution aceita status `running` para
+          // cobrir este cenário e reexecutar na redelivery.
+          jobLog.error(
+            { publishErr, attempt: attemptNumber },
+            "Falha ao publicar no retry queue — requeuing mensagem original"
+          );
+          await taskService.markRetrying(job.id).catch((e) => {
+            jobLog.warn({ err: e }, "markRetrying falhou durante REQUEUE");
+          });
+          return ConsumerStatus.REQUEUE;
+        }
+
+        return ConsumerStatus.DROP;
+      }
+
+      // NonRetryableError ou retries esgotados → DLQ
+      const reason = isNonRetryable ? "non_retryable" : "max_retries_exceeded";
+
+      jobLog.error({ err, attempt: attemptNumber, reason }, "Enviando job para DLQ");
+
+      try {
+        await publisher.send(
+          { routingKey: topology.dlqName, durable: true },
+          { ...job, attempt: attemptNumber }
+        );
+      } catch (publishErr) {
+        jobLog.error({ publishErr }, "Falha ao publicar no DLQ — requeuing mensagem original");
+        await taskService.markRetrying(job.id).catch((e) => {
+          jobLog.warn({ err: e }, "markRetrying falhou durante REQUEUE");
+        });
+        return ConsumerStatus.REQUEUE;
+      }
+
       await taskService.markFailed(job.id, err).catch((e) => {
         jobLog.warn({ err: e }, "Falha ao marcar task failed");
       });

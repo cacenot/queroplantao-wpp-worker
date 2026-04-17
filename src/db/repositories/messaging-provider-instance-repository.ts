@@ -125,10 +125,7 @@ export class MessagingProviderInstanceRepository {
           isNull(messagingProviderInstances.archivedAt)
         )
       )
-      .orderBy(
-        asc(messagingProviderInstances.displayName),
-        asc(zapiInstances.zapiInstanceId)
-      );
+      .orderBy(asc(messagingProviderInstances.displayName), asc(zapiInstances.zapiInstanceId));
   }
 
   async existsByZapiInstanceId(zapiInstanceId: string, tx?: DbOrTx): Promise<boolean> {

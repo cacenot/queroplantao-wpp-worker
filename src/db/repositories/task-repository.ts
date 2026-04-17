@@ -43,10 +43,20 @@ export class TaskRepository {
         attempt: sql`${tasks.attempt} + 1`,
         updatedAt: new Date(),
       })
-      .where(and(eq(tasks.id, id), inArray(tasks.status, ["queued", "pending"])))
+      // `running` aceito para cobrir redelivery pós-REQUEUE quando markRetrying falhou
+      .where(and(eq(tasks.id, id), inArray(tasks.status, ["queued", "pending", "running"])))
       .returning();
 
     return row ?? null;
+  }
+
+  async markRetrying(id: string): Promise<boolean> {
+    const [row] = await this.db
+      .update(tasks)
+      .set({ status: "queued", queuedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(tasks.id, id), eq(tasks.status, "running")))
+      .returning({ id: tasks.id });
+    return row !== undefined;
   }
 
   async markSucceeded(id: string): Promise<void> {
