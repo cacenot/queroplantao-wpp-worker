@@ -87,9 +87,7 @@ class FakeRepository {
       displayName: base.displayName,
       isEnabled: base.isEnabled ?? true,
       executionStrategy: base.executionStrategy ?? "leased",
-      redisKey: base.redisKey ?? null,
-      cooldownMinMs: base.cooldownMinMs ?? null,
-      cooldownMaxMs: base.cooldownMaxMs ?? null,
+      redisKey: base.redisKey,
       safetyTtlMs: base.safetyTtlMs ?? null,
       heartbeatIntervalMs: base.heartbeatIntervalMs ?? null,
       createdAt: now,
@@ -212,6 +210,7 @@ describe("POST /providers/instances", () => {
           displayName: "inst",
           zapiInstanceId: "i1",
           instanceToken: "tokenabcdef",
+          redisKey: "messaging:whatsapp",
         }),
       },
       null
@@ -229,6 +228,7 @@ describe("POST /providers/instances", () => {
           displayName: "inst",
           zapiInstanceId: "i1",
           instanceToken: "tokenabcdef",
+          redisKey: "messaging:whatsapp",
         }),
       },
       "wrong-key"
@@ -243,12 +243,14 @@ describe("POST /providers/instances", () => {
         displayName: "inst-01",
         zapiInstanceId: "i1",
         instanceToken: "supersecret1234",
+        redisKey: "messaging:whatsapp",
       }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as OkResp;
     expect(body.data.displayName).toBe("inst-01");
     expect(body.data.isEnabled).toBe(true);
+    expect(body.data.redisKey).toBe("messaging:whatsapp");
     expect(body.data.zapi?.zapiInstanceId).toBe("i1");
     expect(body.data.zapi?.instanceTokenMasked).toBe("supe...1234");
     expect(body.warning).toContain("restart");
@@ -256,10 +258,23 @@ describe("POST /providers/instances", () => {
     expect((body.data.zapi as any).instanceToken).toBeUndefined();
   });
 
-  it("400 quando displayName falta", async () => {
+  it("422 quando displayName falta", async () => {
     const res = await makeRequest(app, "/providers/instances", {
       method: "POST",
       body: JSON.stringify({
+        zapiInstanceId: "i1",
+        instanceToken: "tokenabcdef",
+        redisKey: "messaging:whatsapp",
+      }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("422 quando redisKey falta", async () => {
+    const res = await makeRequest(app, "/providers/instances", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: "inst-01",
         zapiInstanceId: "i1",
         instanceToken: "tokenabcdef",
       }),
@@ -274,6 +289,7 @@ describe("POST /providers/instances", () => {
         displayName: "inst-01",
         zapiInstanceId: "dup",
         instanceToken: "tokenabcdef",
+        redisKey: "messaging:whatsapp",
       }),
     });
 
@@ -283,6 +299,7 @@ describe("POST /providers/instances", () => {
         displayName: "inst-02",
         zapiInstanceId: "dup",
         instanceToken: "other-token-value",
+        redisKey: "messaging:whatsapp",
       }),
     });
 
@@ -300,6 +317,7 @@ describe("GET /providers/instances/:id", () => {
         displayName: "inst-01",
         zapiInstanceId: "i1",
         instanceToken: "supersecret1234",
+        redisKey: "messaging:whatsapp",
       }),
     });
     const createdBody = (await created.json()) as OkResp;
@@ -331,6 +349,7 @@ describe("GET /providers/instances", () => {
         displayName,
         zapiInstanceId,
         instanceToken: "tokenabcdef",
+        redisKey: "messaging:whatsapp",
       }),
     });
   }
@@ -380,6 +399,7 @@ describe("PATCH /providers/instances/:id/disable e /enable", () => {
         displayName: "inst",
         zapiInstanceId: "i1",
         instanceToken: "tokenabcdef",
+        redisKey: "messaging:whatsapp",
       }),
     });
     return ((await res.json()) as OkResp).data.id;

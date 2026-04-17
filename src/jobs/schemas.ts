@@ -1,12 +1,14 @@
 import { z } from "zod";
 
 const deleteMessagePayloadSchema = z.object({
+  providerInstanceId: z.string().uuid(),
   messageId: z.string().min(1),
   phone: z.string().min(1),
   owner: z.boolean(),
 });
 
 const removeParticipantPayloadSchema = z.object({
+  providerInstanceId: z.string().uuid(),
   groupId: z.string().min(1),
   phones: z.array(z.string().min(1)).min(1),
 });

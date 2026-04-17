@@ -9,13 +9,14 @@ import { NonRetryableError } from "../lib/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
-import type { WhatsAppExecutor } from "../messaging/whatsapp/types.ts";
+import type { GatewayRegistry } from "../messaging/gateway-registry.ts";
+import type { WhatsAppExecutor, WhatsAppProvider } from "../messaging/whatsapp/types.ts";
 import type { TaskService } from "../services/task/index.ts";
 
 type ClassifyFn = (text: string) => Promise<MessageAnalysis>;
 
 interface JobHandlerOptions {
-  whatsappGateway: WhatsAppExecutor;
+  whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
   classifyMessage: ClassifyFn;
   adminApi: QpAdminApiClient;
   taskService: TaskService;
@@ -24,9 +25,20 @@ interface JobHandlerOptions {
   onSuccess?: () => void;
 }
 
+function resolveExecutor(
+  registry: GatewayRegistry<WhatsAppProvider>,
+  providerInstanceId: string
+): WhatsAppExecutor {
+  const executor = registry.getByInstanceId(providerInstanceId);
+  if (!executor) {
+    throw new NonRetryableError(`Provider instance desconhecido no worker: ${providerInstanceId}`);
+  }
+  return executor;
+}
+
 export function createJobHandler(options: JobHandlerOptions) {
   const {
-    whatsappGateway,
+    whatsappGatewayRegistry,
     classifyMessage,
     adminApi,
     taskService,
@@ -73,10 +85,16 @@ export function createJobHandler(options: JobHandlerOptions) {
     try {
       switch (job.type) {
         case "whatsapp.delete_message":
-          await deleteMessage(job.payload, whatsappGateway);
+          await deleteMessage(
+            job.payload,
+            resolveExecutor(whatsappGatewayRegistry, job.payload.providerInstanceId)
+          );
           break;
         case "whatsapp.remove_participant":
-          await removeParticipant(job.payload, whatsappGateway);
+          await removeParticipant(
+            job.payload,
+            resolveExecutor(whatsappGatewayRegistry, job.payload.providerInstanceId)
+          );
           break;
         case "whatsapp.analyze_message":
           await analyzeMessage(job.payload, classifyMessage, adminApi);

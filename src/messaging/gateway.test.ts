@@ -1,5 +1,5 @@
-import type Redis from "ioredis";
 import { describe, expect, it } from "bun:test";
+import type Redis from "ioredis";
 import { ProviderGateway } from "./gateway.ts";
 import type { MessagingProvider, MessagingProviderExecution } from "./types.ts";
 

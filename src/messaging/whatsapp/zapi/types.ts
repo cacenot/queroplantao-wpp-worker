@@ -6,6 +6,7 @@ export interface ZApiInstanceRecord {
 }
 
 export interface ZApiInstanceConfig extends ZApiInstanceRecord {
+  providerInstanceId: string;
   client_token: string;
   execution?: MessagingProviderExecution;
 }

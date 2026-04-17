@@ -4,8 +4,6 @@ export interface MessagingInstance {
 
 export interface MessagingLeasedExecution {
   kind: "leased";
-  cooldownMinMs?: number;
-  cooldownMaxMs?: number;
   safetyTtlMs?: number;
   heartbeatIntervalMs?: number;
 }

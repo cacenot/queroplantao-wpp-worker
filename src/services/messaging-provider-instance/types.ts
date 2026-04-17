@@ -15,9 +15,7 @@ export interface InstanceView {
   displayName: string;
   isEnabled: boolean;
   executionStrategy: "leased" | "passthrough";
-  redisKey: string | null;
-  cooldownMinMs: number | null;
-  cooldownMaxMs: number | null;
+  redisKey: string;
   safetyTtlMs: number | null;
   heartbeatIntervalMs: number | null;
   createdAt: string;
@@ -38,9 +36,7 @@ export interface CreateZApiInstanceInput {
   instanceToken: string;
   webhookBaseUrl?: string | null;
   executionStrategy?: "leased" | "passthrough";
-  redisKey?: string | null;
-  cooldownMinMs?: number | null;
-  cooldownMaxMs?: number | null;
+  redisKey: string;
   safetyTtlMs?: number | null;
   heartbeatIntervalMs?: number | null;
 }

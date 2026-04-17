@@ -1,11 +1,6 @@
 import type Redis from "ioredis";
 import { logger } from "../lib/logger.ts";
-import type {
-  MessagingLeasedExecution,
-  MessagingProvider,
-  MessagingProviderExecution,
-  ProviderExecutor,
-} from "./types.ts";
+import type { MessagingProvider, MessagingProviderExecution, ProviderExecutor } from "./types.ts";
 
 const ACQUIRE_LEASE_SCRIPT = `
 -- provider-gateway:acquire-lease
@@ -95,14 +90,18 @@ interface ProviderGatewayOptions<T extends MessagingProvider> {
 }
 
 interface LeaseDefaults {
-  cooldownMinMs: number;
-  cooldownMaxMs: number;
+  delayMinMs: number;
+  delayMaxMs: number;
   safetyTtlMs: number;
   heartbeatIntervalMs?: number;
 }
 
-interface ResolvedLeasedExecution extends Required<MessagingLeasedExecution> {
+interface ResolvedLeasedExecution {
   kind: "leased";
+  delayMinMs: number;
+  delayMaxMs: number;
+  safetyTtlMs: number;
+  heartbeatIntervalMs: number;
 }
 
 type ResolvedProviderExecution = ResolvedLeasedExecution | { kind: "passthrough" };
@@ -149,15 +148,11 @@ function resolveProviderExecution(
     return { kind: "passthrough" };
   }
 
-  const cooldownMinMs = execution?.cooldownMinMs ?? defaults.cooldownMinMs;
-  const cooldownMaxMs = execution?.cooldownMaxMs ?? defaults.cooldownMaxMs;
   const safetyTtlMs = execution?.safetyTtlMs ?? defaults.safetyTtlMs;
   const heartbeatIntervalMs =
     execution?.heartbeatIntervalMs ??
     defaults.heartbeatIntervalMs ??
     deriveHeartbeatInterval(safetyTtlMs);
-
-  validateCooldownRange(cooldownMinMs, cooldownMaxMs, `Provider ${providerId}`);
 
   if (safetyTtlMs <= 0) {
     throw new Error(`Provider ${providerId}: safetyTtlMs deve ser > 0`);
@@ -171,8 +166,8 @@ function resolveProviderExecution(
 
   return {
     kind: "leased",
-    cooldownMinMs,
-    cooldownMaxMs,
+    delayMinMs: defaults.delayMinMs,
+    delayMaxMs: defaults.delayMaxMs,
     safetyTtlMs,
     heartbeatIntervalMs,
   };
@@ -239,8 +234,8 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     }
 
     const defaults: LeaseDefaults = {
-      cooldownMinMs: delayMinMs,
-      cooldownMaxMs: delayMaxMs,
+      delayMinMs,
+      delayMaxMs,
       safetyTtlMs,
       heartbeatIntervalMs: defaultHeartbeatIntervalMs,
     };
@@ -389,7 +384,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       release: async () => {
         await heartbeat.stop();
 
-        const cooldownMs = randomDelay(execution.cooldownMinMs, execution.cooldownMaxMs);
+        const cooldownMs = randomDelay(execution.delayMinMs, execution.delayMaxMs);
         const released = await this.releaseLease(entry, ownerToken, cooldownMs);
 
         if (!released) {
@@ -475,6 +470,10 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
           .then((renewed) => {
             pendingRenewal = null;
 
+            if (stopped) {
+              return;
+            }
+
             if (!renewed) {
               stopped = true;
               logger.warn(
@@ -488,8 +487,12 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
           })
           .catch((err) => {
             pendingRenewal = null;
-            stopped = true;
 
+            if (stopped) {
+              return;
+            }
+
+            stopped = true;
             logger.warn(
               { err, providerId: entry.provider.instance.id, redisKey: this.redisKey },
               "Erro ao renovar lease do provider"

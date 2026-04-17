@@ -1,4 +1,5 @@
 import { env } from "../../../config/env.ts";
+import type { MessagingProviderExecution } from "../../types.ts";
 import type {
   DeleteMessagePayload,
   RemoveParticipantPayload,
@@ -27,10 +28,10 @@ export class ZApiError extends Error {
  */
 export class ZApiClient implements WhatsAppProvider {
   readonly instance: WhatsAppInstance;
-  readonly execution;
+  readonly execution?: MessagingProviderExecution;
 
   constructor(private readonly config: ZApiInstanceConfig) {
-    this.instance = { id: config.instance_id };
+    this.instance = { id: config.providerInstanceId };
     this.execution = config.execution;
   }
 

@@ -2,9 +2,9 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import {
   type MessagingProviderInstance,
+  messagingProviderInstances,
   type NewMessagingProviderInstance,
   type NewZApiInstance,
-  messagingProviderInstances,
   type ZApiInstance,
   zapiInstances,
 } from "../schema/provider-registry.ts";
@@ -31,9 +31,7 @@ export interface EnabledZApiRow {
   providerId: string;
   displayName: string;
   executionStrategy: MessagingProviderInstance["executionStrategy"];
-  redisKey: string | null;
-  cooldownMinMs: number | null;
-  cooldownMaxMs: number | null;
+  redisKey: string;
   safetyTtlMs: number | null;
   heartbeatIntervalMs: number | null;
   instanceId: string;
@@ -105,8 +103,6 @@ export class MessagingProviderInstanceRepository {
         displayName: messagingProviderInstances.displayName,
         executionStrategy: messagingProviderInstances.executionStrategy,
         redisKey: messagingProviderInstances.redisKey,
-        cooldownMinMs: messagingProviderInstances.cooldownMinMs,
-        cooldownMaxMs: messagingProviderInstances.cooldownMaxMs,
         safetyTtlMs: messagingProviderInstances.safetyTtlMs,
         heartbeatIntervalMs: messagingProviderInstances.heartbeatIntervalMs,
         instanceId: zapiInstances.zapiInstanceId,

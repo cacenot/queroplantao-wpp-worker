@@ -15,6 +15,20 @@
       "when": 1776376628666,
       "tag": "0001_superb_boomerang",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776388737583,
+      "tag": "0002_redis_key_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776390611966,
+      "tag": "0003_numerous_vision",
+      "breakpoints": true
     }
   ]
 }

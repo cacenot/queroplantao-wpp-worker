@@ -221,14 +221,14 @@ Request body:
   "webhookBaseUrl": "https://wpp-api.qp.internal",
   "executionStrategy": "leased",
   "redisKey": "messaging:whatsapp",
-  "cooldownMinMs": 500,
-  "cooldownMaxMs": 1800,
   "safetyTtlMs": 120000,
   "heartbeatIntervalMs": 30000
 }
 ```
 
-Campos obrigatórios: `displayName`, `zapiInstanceId`, `instanceToken`. Demais são opcionais.
+Campos obrigatórios: `displayName`, `zapiInstanceId`, `instanceToken`, `redisKey`. Demais são opcionais.
+
+O cooldown entre jobs (delay min/max) é global do pool e vem das envs `ZAPI_DELAY_MIN_MS` / `ZAPI_DELAY_MAX_MS` — não há override por instância.
 
 Response `201 Created`:
 
@@ -242,8 +242,6 @@ Response `201 Created`:
     "isEnabled": true,
     "executionStrategy": "leased",
     "redisKey": "messaging:whatsapp",
-    "cooldownMinMs": 500,
-    "cooldownMaxMs": 1800,
     "safetyTtlMs": 120000,
     "heartbeatIntervalMs": 30000,
     "createdAt": "2026-04-16T12:00:00.000Z",

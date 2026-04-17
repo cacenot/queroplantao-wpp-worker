@@ -179,16 +179,9 @@ rabbitmqadmin get queue=wpp.actions.retry count=10
 ### WhatsApp (ex.: WhatsMeow)
 
 1. Criar `src/messaging/whatsapp/whatsmeow/types.ts` com o shape de configuração da instância.
-2. Criar `src/messaging/whatsapp/whatsmeow/client.ts` com `class WhatsMeowClient implements WhatsAppProvider`. Deve expor `readonly instance: WhatsAppInstance` (com `id` único por instância).
-3. Criar `src/messaging/whatsapp/whatsmeow/provider.ts` com um factory (`createWhatsMeowProviders(configs)`).
-4. Adicionar a tabela específica do provider em `src/db/schema/` e um service de leitura em `src/services/` para materializar configs habilitadas.
-5. Em `src/worker/index.ts`, concatenar os providers no array passado ao `ProviderGateway`:
-   ```typescript
-   providers: [
-     ...createZApiProviders(zapiConfigs),
-     ...createWhatsMeowProviders(whatsmeowConfigs),
-   ]
-   ```
+2. Criar `src/messaging/whatsapp/whatsmeow/client.ts` com `class WhatsMeowClient implements WhatsAppProvider`. Deve expor `readonly instance: WhatsAppInstance` com `id = providerInstanceId` (UUID da linha em `messaging_provider_instances`).
+3. Adicionar a tabela específica do provider em `src/db/schema/` e um service de leitura em `src/services/` para materializar configs habilitadas.
+4. Em `src/worker/index.ts`, adicionar as linhas whatsmeow ao fluxo de `buildWhatsappGatewayRegistry`: o registry já agrupa por `redis_key` e aceita providers de kinds distintos no mesmo pool.
 
 Zero mudança nas actions.
 
@@ -196,9 +189,9 @@ Zero mudança nas actions.
 
 1. Criar `src/messaging/telegram/types.ts` com `TelegramProvider` estendendo `MessagingProvider`.
 2. Criar `src/messaging/telegram/{impl}/` com a implementação (ex.: `bot-api/`).
-3. Instanciar um **segundo** `ProviderGateway<TelegramProvider>` em `src/worker/index.ts` com `redisKey: "messaging:telegram"`.
+3. Em `src/worker/index.ts`, montar um `ProviderGatewayRegistry<TelegramProvider>` análogo ao do WhatsApp, agrupando instâncias Telegram por `redis_key`.
 4. Criar actions em `src/actions/telegram/`.
-5. Adicionar novos `type` ao discriminated union em `src/jobs/types.ts` e `src/jobs/schemas.ts` com prefixo `telegram.`. Estender o switch em `src/worker/handler.ts`.
+5. Adicionar novos `type` ao discriminated union em `src/jobs/schemas.ts` com prefixo `telegram.` — os payloads precisam carregar `providerInstanceId` também. Estender o switch em `src/worker/handler.ts` resolvendo pelo registry Telegram.
 
 ## Rate limiting distribuído
 

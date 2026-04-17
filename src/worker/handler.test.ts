@@ -22,16 +22,24 @@ import type { AsyncMessage } from "rabbitmq-client";
 import type { MessageAnalysis } from "../ai/moderator.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
-import type { WhatsAppExecutor } from "../messaging/whatsapp/types.ts";
+import type { GatewayRegistry } from "../messaging/gateway-registry.ts";
+import type { WhatsAppExecutor, WhatsAppProvider } from "../messaging/whatsapp/types.ts";
 import type { TaskService } from "../services/task/index.ts";
 
 type JobHandler = ReturnType<typeof createJobHandler>;
+
+const PROVIDER_INSTANCE_ID = "11111111-1111-1111-1111-111111111111";
 
 const DELETE_MESSAGE_JOB = {
   id: "550e8400-e29b-41d4-a716-446655440001",
   type: "whatsapp.delete_message",
   createdAt: "2026-04-10T00:00:00.000Z",
-  payload: { messageId: "msg-1", phone: "5511999990001", owner: true },
+  payload: {
+    providerInstanceId: PROVIDER_INSTANCE_ID,
+    messageId: "msg-1",
+    phone: "5511999990001",
+    owner: true,
+  },
 } as const;
 
 const ANALYZE_MESSAGE_JOB = {
@@ -45,7 +53,11 @@ const REMOVE_PARTICIPANT_JOB = {
   id: "550e8400-e29b-41d4-a716-446655440003",
   type: "whatsapp.remove_participant",
   createdAt: "2026-04-10T00:00:00.000Z",
-  payload: { groupId: "group-1", phones: ["5511999990001"] },
+  payload: {
+    providerInstanceId: PROVIDER_INSTANCE_ID,
+    groupId: "group-1",
+    phones: ["5511999990001"],
+  },
 } as const;
 
 function makeMsg(body: unknown): AsyncMessage {
@@ -106,10 +118,17 @@ function makeAdminApi() {
   } as unknown as QpAdminApiClient;
 }
 
+function makeRegistry(
+  resolver: (id: string) => WhatsAppExecutor | undefined
+): GatewayRegistry<WhatsAppProvider> {
+  return { getByInstanceId: (id: string) => resolver(id) };
+}
+
 interface HandlerDeps {
   taskService: ReturnType<typeof makeTaskService>;
   publisher: ReturnType<typeof makePublisher>;
   whatsappGateway: WhatsAppExecutor;
+  whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
   topology: RetryTopology;
   onSuccess: ReturnType<typeof mock>;
 }
@@ -117,6 +136,7 @@ interface HandlerDeps {
 function makeHandler(
   overrides: Partial<{
     whatsappGateway: WhatsAppExecutor;
+    whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
     classifyMessage: ReturnType<typeof makeClassify>;
     taskService: ReturnType<typeof makeTaskService>;
     publisher: ReturnType<typeof makePublisher>;
@@ -124,6 +144,8 @@ function makeHandler(
   }> = {}
 ): { handler: JobHandler; deps: HandlerDeps } {
   const whatsappGateway = overrides.whatsappGateway ?? makeExecutor();
+  const whatsappGatewayRegistry =
+    overrides.whatsappGatewayRegistry ?? makeRegistry(() => whatsappGateway);
   const classifyMessage = overrides.classifyMessage ?? makeClassify();
   const taskService = overrides.taskService ?? makeTaskService();
   const publisher = overrides.publisher ?? makePublisher();
@@ -132,7 +154,7 @@ function makeHandler(
   const adminApi = makeAdminApi();
 
   const handler = createJobHandler({
-    whatsappGateway,
+    whatsappGatewayRegistry,
     classifyMessage: classifyMessage as unknown as (text: string) => Promise<MessageAnalysis>,
     adminApi,
     // biome-ignore lint/suspicious/noExplicitAny: fake service tipado via makeTaskService
@@ -143,7 +165,17 @@ function makeHandler(
     onSuccess,
   });
 
-  return { handler, deps: { taskService, publisher, whatsappGateway, topology, onSuccess } };
+  return {
+    handler,
+    deps: {
+      taskService,
+      publisher,
+      whatsappGateway,
+      whatsappGatewayRegistry,
+      topology,
+      onSuccess,
+    },
+  };
 }
 
 describe("handler — schema inválido", () => {
@@ -236,6 +268,39 @@ describe("handler — happy path", () => {
     expect(result).toBeUndefined();
     expect(classify).toHaveBeenCalledWith("hello");
     expect(deps.taskService.markSucceeded).toHaveBeenCalledWith(ANALYZE_MESSAGE_JOB.id);
+  });
+});
+
+describe("handler — gateway registry", () => {
+  it("providerInstanceId desconhecido → NonRetryableError → DLQ", async () => {
+    const registry = makeRegistry(() => undefined);
+    const publisher = makePublisher();
+    const { handler, deps } = makeHandler({
+      whatsappGatewayRegistry: registry,
+      publisher,
+    });
+
+    const result = await handler(makeMsg(DELETE_MESSAGE_JOB));
+
+    expect(result).toBe(ConsumerStatus.DROP);
+    expect(deps.publisher.send).toHaveBeenCalledWith(
+      { routingKey: "wpp.actions.dlq", durable: true },
+      expect.anything()
+    );
+    expect(deps.taskService.markFailed).toHaveBeenCalledTimes(1);
+    expect(deps.taskService.markRetrying).toHaveBeenCalledTimes(0);
+  });
+
+  it("resolve executor por providerInstanceId do payload", async () => {
+    const executorA = makeExecutor();
+    const executorB = makeExecutor();
+    const registry = makeRegistry((id) => (id === PROVIDER_INSTANCE_ID ? executorA : executorB));
+    const { handler } = makeHandler({ whatsappGatewayRegistry: registry });
+
+    await handler(makeMsg(DELETE_MESSAGE_JOB));
+
+    expect(executorA.execute).toHaveBeenCalledTimes(1);
+    expect(executorB.execute).toHaveBeenCalledTimes(0);
   });
 });
 

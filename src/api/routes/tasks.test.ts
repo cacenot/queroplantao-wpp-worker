@@ -44,12 +44,19 @@ function makeTaskService() {
 
 type MockTaskService = ReturnType<typeof makeTaskService>;
 
+const PROVIDER_INSTANCE_ID = "11111111-1111-1111-1111-111111111111";
+
 function makeDeleteMessageJob(id = "550e8400-e29b-41d4-a716-446655440001") {
   return {
     id,
     type: "whatsapp.delete_message" as const,
     createdAt: "2026-04-10T00:00:00Z",
-    payload: { messageId: "msg-1", phone: "5511999990001", owner: true },
+    payload: {
+      providerInstanceId: PROVIDER_INSTANCE_ID,
+      messageId: "msg-1",
+      phone: "5511999990001",
+      owner: true,
+    },
   };
 }
 
@@ -58,7 +65,11 @@ function makeRemoveParticipantJob(id = "550e8400-e29b-41d4-a716-446655440002") {
     id,
     type: "whatsapp.remove_participant" as const,
     createdAt: "2026-04-10T00:00:00Z",
-    payload: { groupId: "group-1", phones: ["5511999990001"] },
+    payload: {
+      providerInstanceId: PROVIDER_INSTANCE_ID,
+      groupId: "group-1",
+      phones: ["5511999990001"],
+    },
   };
 }
 

@@ -1,0 +1,809 @@
+{
+  "id": "4fdfc7cb-a5c2-4398-a007-4691ca22beb3",
+  "prevId": "19cff3bf-b614-4ff5-94af-6063083d595e",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.messaging_provider_instances": {
+      "name": "messaging_provider_instances",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "protocol": {
+          "name": "protocol",
+          "type": "messaging_protocol",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_kind": {
+          "name": "provider_kind",
+          "type": "messaging_provider_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_enabled": {
+          "name": "is_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "execution_strategy": {
+          "name": "execution_strategy",
+          "type": "messaging_execution_strategy",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'leased'"
+        },
+        "redis_key": {
+          "name": "redis_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cooldown_min_ms": {
+          "name": "cooldown_min_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cooldown_max_ms": {
+          "name": "cooldown_max_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "safety_ttl_ms": {
+          "name": "safety_ttl_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "heartbeat_interval_ms": {
+          "name": "heartbeat_interval_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "messaging_provider_instances_protocol_enabled_idx": {
+          "name": "messaging_provider_instances_protocol_enabled_idx",
+          "columns": [
+            {
+              "expression": "protocol",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "is_enabled",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messaging_provider_instances_provider_kind_idx": {
+          "name": "messaging_provider_instances_provider_kind_idx",
+          "columns": [
+            {
+              "expression": "provider_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zapi_instance_connection_events": {
+      "name": "zapi_instance_connection_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "messaging_provider_instance_id": {
+          "name": "messaging_provider_instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "zapi_connection_event_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connected": {
+          "name": "connected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "smartphone_connected": {
+          "name": "smartphone_connected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_reason": {
+          "name": "status_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_occurred_at": {
+          "name": "provider_occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_payload": {
+          "name": "raw_payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "zapi_instance_connection_events_provider_instance_idx": {
+          "name": "zapi_instance_connection_events_provider_instance_idx",
+          "columns": [
+            {
+              "expression": "messaging_provider_instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "zapi_instance_connection_events_dedupe_key_idx": {
+          "name": "zapi_instance_connection_events_dedupe_key_idx",
+          "columns": [
+            {
+              "expression": "dedupe_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zapi_instance_connection_events_messaging_provider_instance_id_messaging_provider_instances_id_fk": {
+          "name": "zapi_instance_connection_events_messaging_provider_instance_id_messaging_provider_instances_id_fk",
+          "tableFrom": "zapi_instance_connection_events",
+          "tableTo": "messaging_provider_instances",
+          "columnsFrom": [
+            "messaging_provider_instance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zapi_instance_device_snapshots": {
+      "name": "zapi_instance_device_snapshots",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "messaging_provider_instance_id": {
+          "name": "messaging_provider_instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "zapi_device_snapshot_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "phone_number": {
+          "name": "phone_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_name": {
+          "name": "profile_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_about": {
+          "name": "profile_about",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_image_url": {
+          "name": "profile_image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "original_device": {
+          "name": "original_device",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "device_session_name": {
+          "name": "device_session_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "device_model": {
+          "name": "device_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_business": {
+          "name": "is_business",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_payload": {
+          "name": "raw_payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "zapi_instance_device_snapshots_provider_instance_idx": {
+          "name": "zapi_instance_device_snapshots_provider_instance_idx",
+          "columns": [
+            {
+              "expression": "messaging_provider_instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zapi_instance_device_snapshots_messaging_provider_instance_id_messaging_provider_instances_id_fk": {
+          "name": "zapi_instance_device_snapshots_messaging_provider_instance_id_messaging_provider_instances_id_fk",
+          "tableFrom": "zapi_instance_device_snapshots",
+          "tableTo": "messaging_provider_instances",
+          "columnsFrom": [
+            "messaging_provider_instance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zapi_instances": {
+      "name": "zapi_instances",
+      "schema": "",
+      "columns": {
+        "messaging_provider_instance_id": {
+          "name": "messaging_provider_instance_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "zapi_instance_id": {
+          "name": "zapi_instance_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_token": {
+          "name": "instance_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "webhook_base_url": {
+          "name": "webhook_base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_connection_state": {
+          "name": "current_connection_state",
+          "type": "zapi_connection_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_status_reason": {
+          "name": "current_status_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_connected": {
+          "name": "current_connected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_smartphone_connected": {
+          "name": "current_smartphone_connected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_phone_number": {
+          "name": "current_phone_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_profile_name": {
+          "name": "current_profile_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_profile_about": {
+          "name": "current_profile_about",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_profile_image_url": {
+          "name": "current_profile_image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_original_device": {
+          "name": "current_original_device",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_session_id": {
+          "name": "current_session_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_device_session_name": {
+          "name": "current_device_session_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_device_model": {
+          "name": "current_device_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_is_business": {
+          "name": "current_is_business",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_status_synced_at": {
+          "name": "last_status_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_device_synced_at": {
+          "name": "last_device_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "zapi_instances_zapi_instance_id_idx": {
+          "name": "zapi_instances_zapi_instance_id_idx",
+          "columns": [
+            {
+              "expression": "zapi_instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zapi_instances_messaging_provider_instance_id_messaging_provider_instances_id_fk": {
+          "name": "zapi_instances_messaging_provider_instance_id_messaging_provider_instances_id_fk",
+          "tableFrom": "zapi_instances",
+          "tableTo": "messaging_provider_instances",
+          "columnsFrom": [
+            "messaging_provider_instance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.tasks": {
+      "name": "tasks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "task_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "task_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "error": {
+          "name": "error",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "queued_at": {
+          "name": "queued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "tasks_status_created_at_idx": {
+          "name": "tasks_status_created_at_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_type_status_idx": {
+          "name": "tasks_type_status_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.messaging_execution_strategy": {
+      "name": "messaging_execution_strategy",
+      "schema": "public",
+      "values": [
+        "leased",
+        "passthrough"
+      ]
+    },
+    "public.messaging_protocol": {
+      "name": "messaging_protocol",
+      "schema": "public",
+      "values": [
+        "whatsapp",
+        "telegram"
+      ]
+    },
+    "public.messaging_provider_kind": {
+      "name": "messaging_provider_kind",
+      "schema": "public",
+      "values": [
+        "whatsapp_zapi",
+        "whatsapp_whatsmeow",
+        "whatsapp_business_api",
+        "telegram_bot"
+      ]
+    },
+    "public.zapi_connection_event_source": {
+      "name": "zapi_connection_event_source",
+      "schema": "public",
+      "values": [
+        "webhook",
+        "poll",
+        "bootstrap",
+        "manual"
+      ]
+    },
+    "public.zapi_connection_state": {
+      "name": "zapi_connection_state",
+      "schema": "public",
+      "values": [
+        "unknown",
+        "connected",
+        "disconnected",
+        "pending",
+        "errored"
+      ]
+    },
+    "public.zapi_device_snapshot_source": {
+      "name": "zapi_device_snapshot_source",
+      "schema": "public",
+      "values": [
+        "api_device",
+        "webhook",
+        "bootstrap",
+        "manual"
+      ]
+    },
+    "public.task_status": {
+      "name": "task_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "dropped"
+      ]
+    },
+    "public.task_type": {
+      "name": "task_type",
+      "schema": "public",
+      "values": [
+        "whatsapp.delete_message",
+        "whatsapp.remove_participant",
+        "whatsapp.analyze_message"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

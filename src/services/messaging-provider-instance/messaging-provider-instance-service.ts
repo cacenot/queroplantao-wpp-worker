@@ -26,9 +26,7 @@ export class MessagingProviderInstanceService {
           providerKind: "whatsapp_zapi",
           displayName: input.displayName,
           executionStrategy: input.executionStrategy ?? "leased",
-          redisKey: input.redisKey ?? null,
-          cooldownMinMs: input.cooldownMinMs ?? null,
-          cooldownMaxMs: input.cooldownMaxMs ?? null,
+          redisKey: input.redisKey,
           safetyTtlMs: input.safetyTtlMs ?? null,
           heartbeatIntervalMs: input.heartbeatIntervalMs ?? null,
         },
@@ -69,29 +67,25 @@ export class MessagingProviderInstanceService {
   }
 
   async enable(id: string): Promise<InstanceView | null> {
-    const existing = await this.repo.findById(id);
-    if (!existing) return null;
-
-    if (existing.base.isEnabled) {
-      return toInstanceView(existing);
-    }
-
-    await this.repo.setEnabled(id, true);
-    const refreshed = await this.repo.findById(id);
-    return refreshed ? toInstanceView(refreshed) : null;
+    return this.setEnabledTransition(id, true);
   }
 
   async disable(id: string): Promise<InstanceView | null> {
+    return this.setEnabledTransition(id, false);
+  }
+
+  private async setEnabledTransition(id: string, desired: boolean): Promise<InstanceView | null> {
     const existing = await this.repo.findById(id);
     if (!existing) return null;
 
-    if (!existing.base.isEnabled) {
+    if (existing.base.isEnabled === desired) {
       return toInstanceView(existing);
     }
 
-    await this.repo.setEnabled(id, false);
-    const refreshed = await this.repo.findById(id);
-    return refreshed ? toInstanceView(refreshed) : null;
+    const updatedBase = await this.repo.setEnabled(id, desired);
+    if (!updatedBase) return null;
+
+    return toInstanceView({ base: updatedBase, zapi: existing.zapi });
   }
 }
 
@@ -106,8 +100,6 @@ function toInstanceView(row: InstanceWithZApi): InstanceView {
     isEnabled: base.isEnabled,
     executionStrategy: base.executionStrategy,
     redisKey: base.redisKey,
-    cooldownMinMs: base.cooldownMinMs,
-    cooldownMaxMs: base.cooldownMaxMs,
     safetyTtlMs: base.safetyTtlMs,
     heartbeatIntervalMs: base.heartbeatIntervalMs,
     createdAt: base.createdAt.toISOString(),

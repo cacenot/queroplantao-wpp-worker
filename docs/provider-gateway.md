@@ -1,6 +1,6 @@
 # ProviderGateway
 
-Documento de referência do `ProviderGateway<T>` e da estratégia de lease distribuída.
+Documento de referência do `ProviderGateway<T>`, do `ProviderGatewayRegistry<T>` e da estratégia de lease distribuída.
 
 ## Objetivo
 
@@ -24,8 +24,8 @@ Cada provider pode declarar uma estratégia de execução:
 
 No modo `leased`, o gateway mantém dois estados por provider:
 
-- um score no Sorted Set `messaging:{protocolo}` representando quando a instância volta a ficar disponível
-- uma chave de ownership `messaging:{protocolo}:lease:{providerId}` contendo o token do owner atual
+- um score no Sorted Set indexado pelo `redisKey` do pool representando quando a instância volta a ficar disponível
+- uma chave de ownership `{redisKey}:lease:{providerId}` contendo o token do owner atual
 
 ### Fluxo
 
@@ -67,35 +67,42 @@ Um mesmo gateway pode ter providers `leased` e `passthrough` ao mesmo tempo.
 
 O seletor interno usa rotação local para evitar que um único tipo monopolize todas as execuções. A decisão é sempre por provider, não por protocolo inteiro.
 
+## Múltiplos pools via ProviderGatewayRegistry
+
+O bootstrap do worker agrupa provider instances por `redis_key` e instancia um `ProviderGateway` por grupo. Esses gateways ficam expostos pelo `ProviderGatewayRegistry<T>`, que resolve por `providerInstanceId`:
+
+```ts
+interface GatewayRegistry<T extends MessagingProvider> {
+  getByInstanceId(providerInstanceId: string): ProviderExecutor<T> | undefined;
+}
+```
+
+Cada job AMQP carrega `providerInstanceId` no payload — o handler resolve o executor correto antes de chamar a action. Se o id não existir no registry (instância desconhecida pelo worker atual), o handler lança `NonRetryableError` e o job vai direto para DLQ: retry não corrige config drift.
+
+Isso abre caminho para multi-tenant sem mudar as actions: instâncias isoladas num pool (`redis_key` próprio) não competem nem dividem cooldown com instâncias de outro pool.
+
 ## Relação com o provider registry
 
 O provider registry persiste a estratégia e os defaults operacionais do provider:
 
 - `execution_strategy`
-- `cooldown_min_ms`
-- `cooldown_max_ms`
 - `safety_ttl_ms`
 - `heartbeat_interval_ms`
+- `redis_key` (NOT NULL — determina o pool)
 
-O worker materializa esses campos no bootstrap e os injeta nos providers concretos.
+O cooldown entre jobs (delay min/max) é global do pool e vem das envs `ZAPI_DELAY_MIN_MS` / `ZAPI_DELAY_MAX_MS`. Não existe override por instância.
 
-## Z-API e snapshot de estado
-
-O snapshot atual da Z-API vive em `zapi_instances`, mas a observabilidade de webhook fica nas tabelas append-only:
-
-- `zapi_instance_connection_events`
-- `zapi_instance_device_snapshots`
-
-`last_webhook_received_at` não deve existir em `zapi_instances`, porque webhooks de alta frequência transformariam a row de snapshot em hot row de update sem ganho real. O campo `received_at` nos eventos históricos já cobre esse caso.
+O worker materializa esses campos no bootstrap e os injeta nos providers concretos. A identidade do provider dentro do gateway é o `providerInstanceId` (UUID da linha em `messaging_provider_instances`), não o `instance_id` externo da Z-API.
 
 ## Mutação via HTTP
 
 A API expõe `POST`/`GET`/`PATCH /providers/instances` para criar, consultar, habilitar e desabilitar provider instances.
 
 - As rotas escrevem apenas no banco (`messaging_provider_instances` + `zapi_instances`).
-- O worker lê o registry **apenas no bootstrap**. A lista de providers do `ProviderGateway` é imutável em runtime.
+- O worker lê o registry **apenas no bootstrap**. A lista de providers do registry é imutável em runtime.
 - Portanto, habilitar/desabilitar/criar via HTTP **só entra em vigor no próximo restart do worker**. As respostas dos endpoints retornam um campo `warning` explicitando isso.
 - Um provider desabilitado continua executando jobs até o restart porque a lease no Redis permanece válida.
+- Uma instância reabilitada sem restart também permanece inoperante até o próximo bootstrap: o Sorted Set `redis_key` ainda não terá sua entrada via `ZADD NX`, e o handler não resolve sua gateway.
 - Runtime reload (via Redis pub/sub notificando os workers) é trabalho futuro.
 
 ## Limites e trade-offs
@@ -104,10 +111,13 @@ A API expõe `POST`/`GET`/`PATCH /providers/instances` para criar, consultar, ha
 - o gateway não cancela callbacks em andamento se a lease for perdida; ele apenas evita que um stale release corrompa o estado seguinte
 - `passthrough` não tenta impor nenhuma forma de serialização distribuída
 - CRUD via HTTP depende de restart do worker para efetivar — ver "Mutação via HTTP" acima
+- jobs sem `providerInstanceId` válido (inexistente no worker atual) vão para DLQ, não para retry
 
 ## Arquivos principais
 
 - `src/messaging/gateway.ts`
+- `src/messaging/gateway-registry.ts`
 - `src/messaging/types.ts`
 - `src/worker/index.ts`
+- `src/worker/handler.ts`
 - `src/services/provider-registry/provider-registry-read-service.ts`
