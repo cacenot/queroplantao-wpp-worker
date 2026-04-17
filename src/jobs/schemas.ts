@@ -18,6 +18,10 @@ const analyzeMessagePayloadSchema = z.object({
   text: z.string().min(1),
 });
 
+const moderateGroupMessagePayloadSchema = z.object({
+  moderationId: z.string().uuid(),
+});
+
 const baseJobSchema = z.object({
   id: z.string().uuid(),
   createdAt: z.string().datetime(),
@@ -39,10 +43,16 @@ export const analyzeMessageJobSchema = baseJobSchema.extend({
   payload: analyzeMessagePayloadSchema,
 });
 
+export const moderateGroupMessageJobSchema = baseJobSchema.extend({
+  type: z.literal("whatsapp.moderate_group_message"),
+  payload: moderateGroupMessagePayloadSchema,
+});
+
 export const jobSchema = z.discriminatedUnion("type", [
   deleteMessageJobSchema,
   removeParticipantJobSchema,
   analyzeMessageJobSchema,
+  moderateGroupMessageJobSchema,
 ]);
 
 export type JobSchema = z.infer<typeof jobSchema>;

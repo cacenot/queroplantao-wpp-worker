@@ -1,5 +1,24 @@
 import type { MessageAnalysis } from "../ai/moderator.ts";
 
+export interface AdminMessagingGroup {
+  id: string;
+  externalId: string;
+  protocol: "whatsapp" | "telegram";
+  name: string;
+  inviteUrl: string | null;
+  imageUrl: string | null;
+  country: string | null;
+  uf: string | null;
+  region: string | null;
+  city: string | null;
+  specialties: string[] | null;
+  categories: string[] | null;
+  participantCount: number | null;
+  isCommunityVisible: boolean | null;
+  metadata: Record<string, unknown> | null;
+  sourceUpdatedAt: string | null;
+}
+
 export class QpAdminApiError extends Error {
   constructor(
     message: string,
@@ -16,6 +35,12 @@ export class QpAdminApiClient {
     private readonly baseUrl: string,
     private readonly token: string
   ) {}
+
+  async listMessagingGroups(): Promise<AdminMessagingGroup[]> {
+    const response = await this.request("api/internal/messaging-groups", { method: "GET" });
+    const body = (await response.json()) as { data: AdminMessagingGroup[] } | AdminMessagingGroup[];
+    return Array.isArray(body) ? body : body.data;
+  }
 
   async submitMessageAnalysis(hash: string, analysis: MessageAnalysis): Promise<void> {
     const response = await this.request(`api/internal/message-analysis/${hash}`, {

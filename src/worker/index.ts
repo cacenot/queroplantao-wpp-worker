@@ -3,6 +3,9 @@ import { createModel } from "../ai/model.ts";
 import { classifyMessage } from "../ai/moderator.ts";
 import { env } from "../config/env.ts";
 import { createDbConnection, createDrizzleDb, type Db } from "../db/client.ts";
+import { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
+import { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
+import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
@@ -15,6 +18,7 @@ import type { MessagingProviderExecution } from "../messaging/types.ts";
 import type { WhatsAppProvider } from "../messaging/whatsapp/types.ts";
 import { ZApiClient } from "../messaging/whatsapp/zapi/client.ts";
 import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
+import { GroupSyncService, MessagingGroupsCache } from "../services/messaging-groups/index.ts";
 import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
 import type { ZApiProviderRegistryRow } from "../services/provider-registry/zod.ts";
 import { TaskService } from "../services/task/index.ts";
@@ -119,13 +123,44 @@ async function main() {
     healthy = false;
   });
 
-  const taskService = new TaskService({ repo: new TaskRepository(db) });
+  const taskService = new TaskService({
+    repo: new TaskRepository(db),
+    publisher: retryPublisher,
+    queueName: env.AMQP_QUEUE,
+  });
+
+  const messagingGroupsRepo = new MessagingGroupsRepository(db);
+  const moderationsRepo = new MessageModerationsRepository(db);
+  const groupMessagesRepo = new GroupMessagesRepository(db);
+
+  const messagingGroupsCache = new MessagingGroupsCache({
+    redis,
+    repo: messagingGroupsRepo,
+    prefix: env.MESSAGING_GROUPS_REDIS_PREFIX,
+  });
+
+  const groupSyncService = new GroupSyncService({
+    adminApi,
+    repo: messagingGroupsRepo,
+    cache: messagingGroupsCache,
+  });
+
+  await groupSyncService.syncFromAdminApi();
+
+  const groupSyncInterval = setInterval(() => {
+    groupSyncService.syncFromAdminApi().catch((err) => {
+      logger.error({ err }, "Erro em ciclo de sync de grupos monitorados");
+    });
+  }, env.GROUPS_SYNC_INTERVAL_MS);
+  groupSyncInterval.unref?.();
 
   const handleMessage = createJobHandler({
     whatsappGatewayRegistry,
     classifyMessage: (text) => classifyMessage(text, analyzeMessageModel),
     adminApi,
     taskService,
+    moderationsRepo,
+    groupMessagesRepo,
     publisher: retryPublisher,
     topology,
     onSuccess: () => {
@@ -168,6 +203,7 @@ async function main() {
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando worker");
     try {
+      clearInterval(groupSyncInterval);
       healthServer.stop();
       await consumer.close();
       await retryPublisher.close();

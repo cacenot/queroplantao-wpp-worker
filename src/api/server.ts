@@ -1,11 +1,14 @@
 import { swagger } from "@elysiajs/swagger";
 import { Elysia } from "elysia";
 import { env } from "../config/env.ts";
+import type { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
 import { logger } from "../lib/logger.ts";
+import type { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
 import type { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
 import type { TaskService } from "../services/task/index.ts";
 import { providerInstancesRoutes } from "./routes/provider-instances.ts";
 import { tasksRoutes } from "./routes/tasks.ts";
+import { webhooksZapiRoutes } from "./routes/webhooks/zapi.ts";
 
 export interface HttpServerHandle {
   stop(): Promise<void> | void;
@@ -15,11 +18,23 @@ export interface HttpServerHandle {
 export interface HttpServerOptions {
   taskService: TaskService;
   instanceService?: MessagingProviderInstanceService;
+  groupMessagesService?: GroupMessagesService;
+  providerInstanceRepo?: MessagingProviderInstanceRepository;
+  webhookSecret?: string;
+  webhookEnabled?: boolean;
   isHealthy: () => boolean;
 }
 
 export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
-  const { taskService, instanceService, isHealthy } = options;
+  const {
+    taskService,
+    instanceService,
+    groupMessagesService,
+    providerInstanceRepo,
+    webhookSecret,
+    webhookEnabled,
+    isHealthy,
+  } = options;
 
   const app = new Elysia()
     .use(
@@ -35,6 +50,7 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
           tags: [
             { name: "tasks", description: "Publicação de jobs no AMQP" },
             { name: "providers", description: "Provider instances (CRUD)" },
+            { name: "webhooks", description: "Webhooks de providers externos" },
           ],
         },
       })
@@ -48,6 +64,17 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
 
   if (instanceService) {
     app.use(providerInstancesRoutes(instanceService));
+  }
+
+  if (groupMessagesService && providerInstanceRepo && webhookSecret) {
+    app.use(
+      webhooksZapiRoutes({
+        groupMessagesService,
+        providerInstanceRepo,
+        webhookSecret,
+        enabled: webhookEnabled ?? true,
+      })
+    );
   }
 
   app.listen(env.HTTP_PORT);

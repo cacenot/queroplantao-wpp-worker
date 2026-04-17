@@ -11,6 +11,8 @@ process.env.ZAPI_INSTANCES = JSON.stringify([
 process.env.HTTP_API_KEY = VALID_API_KEY;
 process.env.HTTP_PORT = "0";
 process.env.REDIS_URL = "redis://localhost:6379";
+process.env.MODERATION_VERSION = "v1";
+process.env.ZAPI_RECEIVED_WEBHOOK_SECRET = "test-webhook-secret";
 
 const { startHttpServer } = await import("../server.ts");
 

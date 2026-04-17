@@ -124,6 +124,16 @@ export class MessagingProviderInstanceRepository {
       .orderBy(asc(messagingProviderInstances.displayName), asc(zapiInstances.zapiInstanceId));
   }
 
+  async findProviderInstanceIdByZapiInstanceId(zapiInstanceId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ id: zapiInstances.messagingProviderInstanceId })
+      .from(zapiInstances)
+      .where(eq(zapiInstances.zapiInstanceId, zapiInstanceId))
+      .limit(1);
+
+    return row?.id ?? null;
+  }
+
   async existsByZapiInstanceId(zapiInstanceId: string, tx?: DbOrTx): Promise<boolean> {
     const executor = tx ?? this.db;
     const [row] = await executor

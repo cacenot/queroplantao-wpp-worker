@@ -10,6 +10,10 @@ export interface AnalyzeMessagePayload {
   text: string;
 }
 
+export interface ModerateGroupMessagePayload {
+  moderationId: string;
+}
+
 export type Job =
   | {
       id: string;
@@ -29,6 +33,13 @@ export type Job =
       id: string;
       type: "whatsapp.analyze_message";
       payload: AnalyzeMessagePayload;
+      createdAt: string;
+      attempt?: number;
+    }
+  | {
+      id: string;
+      type: "whatsapp.moderate_group_message";
+      payload: ModerateGroupMessagePayload;
       createdAt: string;
       attempt?: number;
     };

@@ -118,6 +118,27 @@ function makeAdminApi() {
   } as unknown as QpAdminApiClient;
 }
 
+function makeModerationsRepo() {
+  return {
+    create: mock(() => Promise.resolve({} as unknown)),
+    findReusable: mock(() => Promise.resolve(null)),
+    findByIdWithMessage: mock(() => Promise.resolve(null)),
+    findById: mock(() => Promise.resolve(null)),
+    markAnalyzed: mock(() => Promise.resolve()),
+    markFailed: mock(() => Promise.resolve()),
+  };
+}
+
+function makeGroupMessagesRepo() {
+  return {
+    upsertByIngestionHash: mock(() => Promise.resolve({ row: {} as unknown, isNew: true })),
+    setCurrentModeration: mock(() => Promise.resolve()),
+    setModerationStatus: mock(() => Promise.resolve()),
+    findById: mock(() => Promise.resolve(null)),
+    touchLastSeen: mock(() => Promise.resolve()),
+  };
+}
+
 function makeRegistry(
   resolver: (id: string) => WhatsAppExecutor | undefined
 ): GatewayRegistry<WhatsAppProvider> {
@@ -152,6 +173,8 @@ function makeHandler(
   const topology = overrides.topology ?? makeTopology();
   const onSuccess = mock(() => {});
   const adminApi = makeAdminApi();
+  const moderationsRepo = makeModerationsRepo();
+  const groupMessagesRepo = makeGroupMessagesRepo();
 
   const handler = createJobHandler({
     whatsappGatewayRegistry,
@@ -159,6 +182,10 @@ function makeHandler(
     adminApi,
     // biome-ignore lint/suspicious/noExplicitAny: fake service tipado via makeTaskService
     taskService: taskService as any,
+    // biome-ignore lint/suspicious/noExplicitAny: fake repo tipado via makeModerationsRepo
+    moderationsRepo: moderationsRepo as any,
+    // biome-ignore lint/suspicious/noExplicitAny: fake repo tipado via makeGroupMessagesRepo
+    groupMessagesRepo: groupMessagesRepo as any,
     // biome-ignore lint/suspicious/noExplicitAny: fake publisher tipado via makePublisher
     publisher: publisher as any,
     topology,

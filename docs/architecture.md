@@ -44,14 +44,29 @@ Rodam em containers separados (`docker-compose.api.yml` e `docker-compose.worker
 ### Inbound (webhook recebido do provider)
 
 ```
-┌──────────┐   POST webhook   ┌─────┐   normalize   ┌─────┐   publish   ┌────────┐
-│ provider │ ───────────────▶ │ API │ ────────────▶ │ AMQP│ ──────────▶ │ worker │
-└──────────┘  (ex: Z-API)     └─────┘  (to job)     └─────┘             └────────┘
-                                  │
-                                  └─ src/api/routes/webhooks/{provider}.ts
+┌──────────┐  POST /webhooks/zapi/on-message-received  ┌─────┐
+│  Z-API   │ ─────────────────────────────────────────▶ │ API │
+└──────────┘  ?secret=... (timing-safe)                 └──┬──┘
+                                                           │ extractZapiGroupMessage()
+                                                           │ GroupMessagesService.ingestZapi()
+                                                           │   isMonitored? → Redis / fallback PG
+                                                           │   dedupe por ingestionDedupeHash
+                                                           │   reuse de moderação por contentHash
+                                                           ▼
+                                                      ┌────────┐   publish   ┌────────┐
+                                                      │ tasks  │ ──────────▶ │  AMQP  │
+                                                      │ (PG)   │             └───┬────┘
+                                                      └────────┘                 │ consume
+                                                                                 ▼
+                                                                            ┌────────┐
+                                                                            │ worker │
+                                                                            │ moderate│
+                                                                            │ GroupMsg│
+                                                                            └────────┘
 ```
 
-A pasta `src/api/routes/webhooks/` está pronta; os handlers específicos são um próximo PR.
+Detalhes completos do pipeline de moderação: [`docs/moderation-ingestion.md`](./moderation-ingestion.md).
+Detalhes do sync de grupos monitorados: [`docs/messaging-groups-sync.md`](./messaging-groups-sync.md).
 
 ## Camadas e responsabilidades
 
@@ -266,6 +281,13 @@ Todos os jobs seguem o formato:
 | `QP_ADMIN_API_TOKEN` | string | — | Worker |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | string | — | Worker (só o do provider ativo) |
 | `AI_MODEL_ANALYZE_MESSAGE` | string | `openai/gpt-4o-mini` | Worker |
+| `MODERATION_VERSION` | string | obrigatória | API + Worker |
+| `INGESTION_DEDUPE_WINDOW_MS` | number (ms) | `60000` | API |
+| `MODERATION_REUSE_WINDOW_MS` | number (ms) | `1296000000` (15d) | API |
+| `ZAPI_RECEIVED_WEBHOOK_SECRET` | string | obrigatória | API |
+| `ZAPI_RECEIVED_WEBHOOK_ENABLED` | bool string | `true` | API |
+| `GROUPS_SYNC_INTERVAL_MS` | number (ms) | `300000` (5min) | API + Worker |
+| `MESSAGING_GROUPS_REDIS_PREFIX` | string | `messaging_groups` | API + Worker |
 | `SPAM_FILTERS` / `SPAM_INTERVAL_MS` | string / number | — / 120000 | scripts |
 
 Schema completo e validação: `src/config/env.ts`.

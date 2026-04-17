@@ -2,8 +2,11 @@ import type { AsyncMessage, Publisher } from "rabbitmq-client";
 import { ConsumerStatus } from "rabbitmq-client";
 import { analyzeMessage } from "../actions/whatsapp/analyze-message.ts";
 import { deleteMessage } from "../actions/whatsapp/delete-message.ts";
+import { moderateGroupMessage } from "../actions/whatsapp/moderate-group-message.ts";
 import { removeParticipant } from "../actions/whatsapp/remove-participant.ts";
 import type { MessageAnalysis } from "../ai/moderator.ts";
+import type { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
+import type { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
 import { jobSchema } from "../jobs/schemas.ts";
 import { NonRetryableError } from "../lib/errors.ts";
 import { logger } from "../lib/logger.ts";
@@ -20,6 +23,8 @@ interface JobHandlerOptions {
   classifyMessage: ClassifyFn;
   adminApi: QpAdminApiClient;
   taskService: TaskService;
+  moderationsRepo: MessageModerationsRepository;
+  groupMessagesRepo: GroupMessagesRepository;
   publisher: Publisher;
   topology: RetryTopology;
   onSuccess?: () => void;
@@ -42,6 +47,8 @@ export function createJobHandler(options: JobHandlerOptions) {
     classifyMessage,
     adminApi,
     taskService,
+    moderationsRepo,
+    groupMessagesRepo,
     publisher,
     topology,
     onSuccess,
@@ -98,6 +105,13 @@ export function createJobHandler(options: JobHandlerOptions) {
           break;
         case "whatsapp.analyze_message":
           await analyzeMessage(job.payload, classifyMessage, adminApi);
+          break;
+        case "whatsapp.moderate_group_message":
+          await moderateGroupMessage(job.payload, {
+            moderationsRepo,
+            groupMessagesRepo,
+            classify: classifyMessage,
+          });
           break;
       }
 

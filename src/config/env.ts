@@ -45,6 +45,38 @@ const envSchema = z.object({
   // AI — modelo por action (formato: "provider/model-name")
   AI_MODEL_ANALYZE_MESSAGE: z.string().min(1).default("openai/gpt-4o-mini"),
 
+  // Moderação — versão ativa do prompt/regras. Bumpar invalida cache de reuso.
+  MODERATION_VERSION: z.string().min(1, { message: "MODERATION_VERSION é obrigatória" }),
+
+  // Janela (ms) do bucket de dedupe de ingestão. Colapsa a mesma mensagem em várias instâncias Z-API.
+  INGESTION_DEDUPE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+
+  // Janela (ms) de reuso de moderação por contentHash + moderationVersion. Default: 15 dias.
+  MODERATION_REUSE_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 24 * 60 * 60 * 1000),
+
+  // Sync de grupos monitorados (admin API → Postgres → Redis). Default: 5 min.
+  GROUPS_SYNC_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+
+  // Prefixo das chaves Redis do cache de grupos monitorados (ex.: `${prefix}:whatsapp`).
+  MESSAGING_GROUPS_REDIS_PREFIX: z.string().min(1).default("messaging_groups"),
+
+  // Webhook público Z-API `on-message-received`.
+  ZAPI_RECEIVED_WEBHOOK_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true" || v === "1"),
+  ZAPI_RECEIVED_WEBHOOK_SECRET: z
+    .string()
+    .min(1, { message: "ZAPI_RECEIVED_WEBHOOK_SECRET é obrigatória" }),
+
   // spam-watcher: lista de filtros separados por vírgula (opcional — só usado pelo script)
   SPAM_FILTERS: z.string().optional(),
   // spam-watcher: intervalo entre execuções em ms (default: 2 min)
