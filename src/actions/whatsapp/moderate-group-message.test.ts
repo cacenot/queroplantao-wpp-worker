@@ -117,7 +117,7 @@ describe("moderateGroupMessage", () => {
     expect(groupMessagesRepo.setModerationStatus).toHaveBeenCalledWith(MESSAGE_ID, "analyzed");
   });
 
-  it("marca failed e propaga erro quando o LLM falha", async () => {
+  it("propaga erro transiente sem marcar failed (para retry AMQP re-executar)", async () => {
     const record = makeRecord();
     const moderationsRepo = {
       findByIdWithMessage: mock(() => Promise.resolve(record)),
@@ -137,6 +137,32 @@ describe("moderateGroupMessage", () => {
         { moderationsRepo, groupMessagesRepo, classify }
       )
     ).rejects.toThrow("LLM indisponível");
+
+    // Erro transiente: status fica pending para o retry AMQP re-executar
+    expect(moderationsRepo.markFailed).not.toHaveBeenCalled();
+    expect(groupMessagesRepo.setModerationStatus).not.toHaveBeenCalled();
+  });
+
+  it("marca failed e propaga quando o LLM lança NonRetryableError", async () => {
+    const record = makeRecord();
+    const moderationsRepo = {
+      findByIdWithMessage: mock(() => Promise.resolve(record)),
+      markAnalyzed: mock(() => Promise.resolve()),
+      markFailed: mock(() => Promise.resolve()),
+    } as unknown as MessageModerationsRepository;
+
+    const groupMessagesRepo = {
+      setModerationStatus: mock(() => Promise.resolve()),
+    } as unknown as GroupMessagesRepository;
+
+    const classify = mock(() => Promise.reject(new NonRetryableError("conteúdo inválido")));
+
+    await expect(
+      moderateGroupMessage(
+        { moderationId: MODERATION_ID },
+        { moderationsRepo, groupMessagesRepo, classify }
+      )
+    ).rejects.toBeInstanceOf(NonRetryableError);
 
     expect(moderationsRepo.markFailed).toHaveBeenCalledTimes(1);
     expect(groupMessagesRepo.setModerationStatus).toHaveBeenCalledWith(MESSAGE_ID, "failed");

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, getTableColumns, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import {
   type GroupMessage,
@@ -19,42 +19,33 @@ export interface UpsertGroupMessageResult {
 export class GroupMessagesRepository {
   constructor(private readonly db: Db) {}
 
-  /**
-   * Idempotente: insere nova linha ou atualiza last_seen_at quando o
-   * ingestion_dedupe_hash já existir (duplicata de outra instância).
-   */
   async upsertByIngestionHash(
     message: NewGroupMessage,
     zapiRow: NewGroupMessageZapi | null
   ): Promise<UpsertGroupMessageResult> {
-    return this.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(groupMessages)
-        .where(eq(groupMessages.ingestionDedupeHash, message.ingestionDedupeHash))
-        .limit(1);
+    const [result] = await this.db
+      .insert(groupMessages)
+      .values(message)
+      .onConflictDoUpdate({
+        target: groupMessages.ingestionDedupeHash,
+        set: { lastSeenAt: sql`now()`, updatedAt: sql`now()` },
+      })
+      .returning({
+        ...getTableColumns(groupMessages),
+        isNew: sql<boolean>`(xmax::text::int = 0)`,
+      });
 
-      if (existing) {
-        const [updated] = await tx
-          .update(groupMessages)
-          .set({ lastSeenAt: new Date(), updatedAt: new Date() })
-          .where(eq(groupMessages.id, existing.id))
-          .returning();
-        return { row: updated ?? existing, isNew: false };
-      }
+    if (!result) throw new Error("INSERT group_messages não retornou linha");
 
-      const [inserted] = await tx.insert(groupMessages).values(message).returning();
-      if (!inserted) throw new Error("INSERT group_messages não retornou linha");
+    if (result.isNew && zapiRow) {
+      await this.db
+        .insert(groupMessagesZapi)
+        .values({ ...zapiRow, groupMessageId: result.id })
+        .onConflictDoNothing({ target: groupMessagesZapi.groupMessageId });
+    }
 
-      if (zapiRow) {
-        await tx
-          .insert(groupMessagesZapi)
-          .values({ ...zapiRow, groupMessageId: inserted.id })
-          .onConflictDoNothing({ target: groupMessagesZapi.groupMessageId });
-      }
-
-      return { row: inserted, isNew: true };
-    });
+    const { isNew, ...row } = result;
+    return { row: row as GroupMessage, isNew };
   }
 
   async setCurrentModeration(

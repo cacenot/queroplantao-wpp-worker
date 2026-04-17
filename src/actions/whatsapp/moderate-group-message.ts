@@ -60,14 +60,17 @@ export async function moderateGroupMessage(
 
     await groupMessagesRepo.setModerationStatus(record.message.id, "analyzed");
   } catch (err) {
-    const latency = Math.round(performance.now() - start);
-    const error =
-      err instanceof Error
-        ? { message: err.message, name: err.name, stack: err.stack }
-        : { message: String(err) };
-
-    await moderationsRepo.markFailed(payload.moderationId, error, latency);
-    await groupMessagesRepo.setModerationStatus(record.message.id, "failed");
+    // Só persiste falha em erros terminais. Erros transientes ficam com
+    // status='pending' para o retry AMQP re-executar a classificação.
+    if (err instanceof NonRetryableError) {
+      const latency = Math.round(performance.now() - start);
+      const error =
+        err instanceof Error
+          ? { message: err.message, name: err.name, stack: err.stack }
+          : { message: String(err) };
+      await moderationsRepo.markFailed(payload.moderationId, error, latency);
+      await groupMessagesRepo.setModerationStatus(record.message.id, "failed");
+    }
     throw err;
   }
 }

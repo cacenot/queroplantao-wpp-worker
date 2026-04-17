@@ -36,7 +36,10 @@ export const messagingGroups = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    externalIdIdx: uniqueIndex("messaging_groups_external_id_idx").on(table.externalId),
+    externalProtocolIdx: uniqueIndex("messaging_groups_external_id_protocol_idx").on(
+      table.externalId,
+      table.protocol
+    ),
     protocolIdx: index("messaging_groups_protocol_idx").on(table.protocol),
   })
 );

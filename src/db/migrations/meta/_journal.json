@@ -36,6 +36,13 @@
       "when": 1776438063454,
       "tag": "0004_silly_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776466337096,
+      "tag": "0005_redundant_the_initiative",
+      "breakpoints": true
     }
   ]
 }

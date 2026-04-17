@@ -7,10 +7,8 @@ import { MessagingProviderInstanceRepository } from "../db/repositories/messagin
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
-import { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
-import { GroupSyncService } from "../services/messaging-groups/group-sync-service.ts";
 import { MessagingGroupsCache } from "../services/messaging-groups/messaging-groups-cache.ts";
 import { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
 import { TaskService } from "../services/task/index.ts";
@@ -59,14 +57,6 @@ async function main() {
     prefix: env.MESSAGING_GROUPS_REDIS_PREFIX,
   });
 
-  const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
-
-  const groupSyncService = new GroupSyncService({
-    adminApi,
-    repo: messagingGroupsRepo,
-    cache: messagingGroupsCache,
-  });
-
   const groupMessagesService = new GroupMessagesService({
     groupMessagesRepo,
     moderationsRepo,
@@ -78,23 +68,6 @@ async function main() {
     moderationReuseWindowMs: env.MODERATION_REUSE_WINDOW_MS,
     moderationModelId: env.AI_MODEL_ANALYZE_MESSAGE,
   });
-
-  // Sync inicial de grupos antes de abrir o servidor para requests
-  try {
-    await groupSyncService.syncFromAdminApi();
-    logger.info("Sync inicial de grupos concluído");
-  } catch (err) {
-    logger.warn({ err }, "Sync inicial de grupos falhou — servidor sobe mesmo assim");
-  }
-
-  const syncInterval = setInterval(async () => {
-    try {
-      await groupSyncService.syncFromAdminApi();
-    } catch (err) {
-      logger.warn({ err }, "Sync periódico de grupos falhou");
-    }
-  }, env.GROUPS_SYNC_INTERVAL_MS);
-  syncInterval.unref();
 
   const httpServer = startHttpServer({
     taskService,
@@ -108,7 +81,6 @@ async function main() {
 
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando api");
-    clearInterval(syncInterval);
     try {
       await httpServer.stop();
       await publisher.close();

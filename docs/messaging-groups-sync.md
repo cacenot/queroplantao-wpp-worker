@@ -89,7 +89,9 @@ O `RENAME` é atômico — leitores nunca veem o set parcialmente preenchido.
 
 ## Ciclo de sync
 
-### Responsável: `GroupSyncService` (roda no worker)
+### Responsável: `GroupSyncService` (roda **somente no worker**)
+
+A API **não** executa sync próprio. O webhook `/webhooks/zapi/on-message-received` usa `MessagingGroupsCache.isMonitored()`, que consulta o Redis populado pelo worker. Se o Redis estiver vazio (ex.: boot frio antes do primeiro sync), cai para Postgres. Se o Postgres também estiver vazio, todas as mensagens são descartadas até o worker completar o primeiro sync.
 
 ```
 ┌─ startup do worker ──────────────────┐

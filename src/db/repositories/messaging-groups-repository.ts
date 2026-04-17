@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import {
   type MessagingGroup,
@@ -19,7 +19,7 @@ export class MessagingGroupsRepository {
       .insert(messagingGroups)
       .values(rows)
       .onConflictDoUpdate({
-        target: messagingGroups.externalId,
+        target: [messagingGroups.externalId, messagingGroups.protocol],
         set: {
           protocol: sql`excluded.protocol`,
           name: sql`excluded.name`,
@@ -41,25 +41,19 @@ export class MessagingGroupsRepository {
       })
       .returning({
         id: messagingGroups.id,
-        createdAt: messagingGroups.createdAt,
-        updatedAt: messagingGroups.updatedAt,
+        isNew: sql<boolean>`(xmax::text::int = 0)`,
       });
 
-    let inserted = 0;
-    for (const row of returned) {
-      // Se createdAt === updatedAt (na tolerância de ms) foi INSERT; caso contrário UPDATE
-      if (row.createdAt.getTime() === row.updatedAt.getTime()) inserted++;
-    }
-
+    const inserted = returned.filter((r) => r.isNew).length;
     return { inserted, updated: returned.length - inserted };
   }
 
-  async findByExternalId(externalId: string): Promise<MessagingGroup | null> {
-    const [row] = await this.db
-      .select()
-      .from(messagingGroups)
-      .where(eq(messagingGroups.externalId, externalId))
-      .limit(1);
+  async findByExternalId(externalId: string, protocol?: Protocol): Promise<MessagingGroup | null> {
+    const condition = protocol
+      ? and(eq(messagingGroups.externalId, externalId), eq(messagingGroups.protocol, protocol))
+      : eq(messagingGroups.externalId, externalId);
+
+    const [row] = await this.db.select().from(messagingGroups).where(condition).limit(1);
     return row ?? null;
   }
 

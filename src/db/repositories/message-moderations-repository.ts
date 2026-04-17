@@ -39,6 +39,7 @@ export class MessageModerationsRepository {
           eq(messageModerations.contentHash, contentHash),
           eq(messageModerations.moderationVersion, moderationVersion),
           eq(messageModerations.status, "analyzed"),
+          eq(messageModerations.source, "fresh"),
           gt(messageModerations.createdAt, cutoff)
         )
       )

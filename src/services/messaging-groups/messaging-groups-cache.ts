@@ -13,12 +13,14 @@ interface MessagingGroupsCacheOptions {
 /**
  * Cache de grupos monitorados em Redis com fallback em Postgres.
  * - Lookup: SISMEMBER no set Redis; se 0, consulta o Postgres e repopula o set.
+ * - Cache negativo (TTL 60s) evita ida ao Postgres para grupos não-monitorados.
  * - replaceSet: troca atômica via chave versionada + RENAME (reescrita completa).
  */
 export class MessagingGroupsCache {
   private readonly redis: Redis;
   private readonly repo: MessagingGroupsRepository;
   private readonly prefix: string;
+  private readonly negativeTtlS = 60;
 
   constructor(options: MessagingGroupsCacheOptions) {
     this.redis = options.redis;
@@ -34,16 +36,31 @@ export class MessagingGroupsCache {
     return `${this.prefix}:${protocol}:${suffix}`;
   }
 
+  private missKey(protocol: Protocol, externalId: string): string {
+    return `${this.prefix}:miss:${protocol}:${externalId}`;
+  }
+
   async isMonitored(externalId: string, protocol: Protocol): Promise<boolean> {
     try {
       const hit = await this.redis.sismember(this.setKey(protocol), externalId);
       if (hit === 1) return true;
+
+      // Cache negativo: grupo já confirmado como não-monitorado nesta janela
+      const missed = await this.redis.exists(this.missKey(protocol, externalId));
+      if (missed === 1) return false;
     } catch (err) {
-      logger.warn({ err, externalId }, "Falha no SISMEMBER — caindo para fallback Postgres");
+      logger.warn({ err, externalId }, "Falha no cache Redis — caindo para fallback Postgres");
     }
 
-    const row = await this.repo.findByExternalId(externalId);
-    if (!row || row.protocol !== protocol) return false;
+    const row = await this.repo.findByExternalId(externalId, protocol);
+    if (!row) {
+      try {
+        await this.redis.set(this.missKey(protocol, externalId), "1", "EX", this.negativeTtlS);
+      } catch {
+        // noop — cache negativo é best-effort
+      }
+      return false;
+    }
 
     try {
       await this.redis.sadd(this.setKey(protocol), externalId);
