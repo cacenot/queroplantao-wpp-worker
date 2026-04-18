@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import type { AsyncMessage, Publisher } from "rabbitmq-client";
 import { ConsumerStatus } from "rabbitmq-client";
+import { z } from "zod";
 import { analyzeMessage } from "../actions/whatsapp/analyze-message.ts";
 import { deleteMessage } from "../actions/whatsapp/delete-message.ts";
 import { moderateGroupMessage } from "../actions/whatsapp/moderate-group-message.ts";
@@ -57,6 +58,27 @@ function resolveExecutor(
   return executor;
 }
 
+function warnOnFail(log: JobLogger, message: string) {
+  return (err: unknown) => log.warn({ err }, message);
+}
+
+// Retorna { attempt } quando o job deve executar (claim no DB ou fallback sem
+// persistência se o DB cair); null quando a task já está terminal/inexistente
+// e a mensagem deve ser descartada.
+async function claimOrFallback(
+  taskService: TaskService,
+  job: JobSchema,
+  log: JobLogger
+): Promise<{ attempt: number } | null> {
+  try {
+    const claimed = await taskService.claimForExecution(job.id);
+    return claimed ? { attempt: claimed.attempt } : null;
+  } catch (err) {
+    log.warn({ err }, "Falha ao reivindicar task — executando sem persistência");
+    return { attempt: job.attempt ?? 1 };
+  }
+}
+
 async function executeJob(job: JobSchema, deps: ExecuteDeps): Promise<void> {
   switch (job.type) {
     case "whatsapp.delete_message":
@@ -103,9 +125,9 @@ async function publishOrRequeue(
       { publishErr, queue: args.queue, attempt: args.attempt },
       "Falha ao publicar — requeuing mensagem original"
     );
-    await deps.taskService.markRetrying(args.job.id).catch((e) => {
-      deps.jobLog.warn({ err: e }, "markRetrying falhou durante REQUEUE");
-    });
+    await deps.taskService
+      .markRetrying(args.job.id)
+      .catch(warnOnFail(deps.jobLog, "markRetrying falhou durante REQUEUE"));
     return ConsumerStatus.REQUEUE;
   }
 }
@@ -132,6 +154,7 @@ export function createJobHandler(options: JobHandlerOptions) {
   };
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
+    // 1. Parse — valida o schema da mensagem antes de qualquer coisa.
     const parseResult = jobSchema.safeParse(msg.body);
     if (!parseResult.success) {
       logger.error(
@@ -139,9 +162,9 @@ export function createJobHandler(options: JobHandlerOptions) {
         "Job com schema inválido — descartando"
       );
 
-      const maybeId = (msg.body as Record<string, unknown>)?.id;
-      if (typeof maybeId === "string") {
-        await taskService.markDropped(maybeId, "schema_invalid").catch(() => {});
+      const idParse = z.object({ id: z.string() }).safeParse(msg.body);
+      if (idParse.success) {
+        await taskService.markDropped(idParse.data.id, "schema_invalid").catch(() => {});
       }
 
       return ConsumerStatus.DROP;
@@ -150,32 +173,29 @@ export function createJobHandler(options: JobHandlerOptions) {
     const job = parseResult.data;
     const jobLog = logger.child({ jobId: job.id, type: job.type });
 
-    const claimed = await taskService.claimForExecution(job.id).catch((err) => {
-      jobLog.warn({ err }, "Falha ao reivindicar task — executando sem persistência");
-      return "fallback" as const;
-    });
-
-    if (claimed === null) {
+    // 2. Claim — reserva a task no DB para execução (idempotência e deduplicação).
+    const claim = await claimOrFallback(taskService, job, jobLog);
+    if (claim === null) {
       jobLog.warn("Task já terminal ou inexistente — DROP (redelivery)");
       return ConsumerStatus.DROP;
     }
 
-    // attempt reflete o contador APÓS incremento do claimForExecution (começa em 1).
-    // No fallback, confia no campo attempt da mensagem (melhor estimativa disponível).
-    const attemptNumber = claimed === "fallback" ? (job.attempt ?? 1) : claimed.attempt;
-
+    const attemptNumber = claim.attempt;
     jobLog.info({ attempt: attemptNumber }, "Job recebido — executando");
 
     try {
+      // 3. Execute — despacha para a action correspondente ao tipo do job.
       await executeJob(job, executeDeps);
 
+      // 4. Success — atualiza status e sinaliza para o consumer loop.
       jobLog.info("Job concluído com sucesso");
-      await taskService.markSucceeded(job.id).catch((err) => {
-        jobLog.warn({ err }, "Falha ao marcar task succeeded — job já executado");
-      });
+      await taskService
+        .markSucceeded(job.id)
+        .catch(warnOnFail(jobLog, "Falha ao marcar task succeeded — job já executado"));
       onSuccess?.();
       return undefined;
     } catch (err) {
+      // 5. Failure — classifica o erro e decide entre retry, DLQ ou REQUEUE.
       const isNonRetryable = err instanceof NonRetryableError;
       const retriesUsed = attemptNumber - 1;
       const canRetry = !isNonRetryable && retriesUsed < topology.maxRetries;
@@ -191,9 +211,11 @@ export function createJobHandler(options: JobHandlerOptions) {
           job,
           attempt: attemptNumber,
           onPublished: () =>
-            taskService.markRetrying(job.id).catch((e) => {
-              jobLog.warn({ err: e }, "Falha ao marcar task retrying — status pode ficar running");
-            }),
+            taskService
+              .markRetrying(job.id)
+              .catch(
+                warnOnFail(jobLog, "Falha ao marcar task retrying — status pode ficar running")
+              ),
         });
       }
 
@@ -206,9 +228,9 @@ export function createJobHandler(options: JobHandlerOptions) {
         job,
         attempt: attemptNumber,
         onPublished: () =>
-          taskService.markFailed(job.id, err).catch((e) => {
-            jobLog.warn({ err: e }, "Falha ao marcar task failed");
-          }),
+          taskService
+            .markFailed(job.id, err)
+            .catch(warnOnFail(jobLog, "Falha ao marcar task failed")),
       });
     }
   };
