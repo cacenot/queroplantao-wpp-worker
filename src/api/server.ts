@@ -23,6 +23,7 @@ export interface HttpServerOptions {
   webhookSecret?: string;
   webhookEnabled?: boolean;
   isHealthy: () => boolean;
+  port?: number;
 }
 
 export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
@@ -34,6 +35,7 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
     webhookSecret,
     webhookEnabled,
     isHealthy,
+    port: portOverride,
   } = options;
 
   const app = new Elysia()
@@ -77,7 +79,7 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
     );
   }
 
-  app.listen(env.HTTP_PORT);
+  app.listen(portOverride ?? env.HTTP_PORT);
 
   const port = app.server?.port ?? 0;
   logger.info({ port }, "HTTP server iniciado");

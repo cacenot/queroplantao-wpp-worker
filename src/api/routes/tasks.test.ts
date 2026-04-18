@@ -99,7 +99,7 @@ let baseUrl: string;
 beforeAll(() => {
   taskService = makeTaskService();
   // biome-ignore lint/suspicious/noExplicitAny: mock de TaskService para testes
-  server = startHttpServer({ taskService: taskService as any, isHealthy: () => true });
+  server = startHttpServer({ taskService: taskService as any, isHealthy: () => true, port: 0 });
   baseUrl = `http://localhost:${server.port}`;
 });
 

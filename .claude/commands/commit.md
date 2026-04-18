@@ -54,10 +54,9 @@ Se o biome modificar algum arquivo, isso é esperado — siga em frente.
 ### 4b. Em paralelo (um único bloco de tool-use)
 
 - `bun typecheck`
-- `bun test`
-- `bun infra && bun test:integration`
+- `bun infra && bun test:verbose`
 
-> `bun infra` é `docker compose up -d` (idempotente — não recria containers já rodando). É necessário antes dos testes de integração.
+> `bun infra` é `docker compose up -d` (idempotente — não recria containers já rodando). É necessário antes dos testes de integração. `test:verbose` roda a suite completa (unit + integration) com logs visíveis.
 
 ### 4c. Falhas
 
