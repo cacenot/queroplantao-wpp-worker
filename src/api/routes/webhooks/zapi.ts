@@ -1,6 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
 import { Elysia } from "elysia";
-import type { MessagingProviderInstanceRepository } from "../../../db/repositories/messaging-provider-instance-repository.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   extractZapiGroupMessage,
@@ -8,10 +7,11 @@ import {
 } from "../../../messaging/whatsapp/zapi/message-normalizer.ts";
 import { zapiReceivedWebhookSchema } from "../../../messaging/whatsapp/zapi/webhook-schema.ts";
 import type { GroupMessagesService } from "../../../services/group-messages/group-messages-service.ts";
+import type { MessagingProviderInstanceService } from "../../../services/messaging-provider-instance/index.ts";
 
 export interface WebhooksZapiDeps {
   groupMessagesService: GroupMessagesService;
-  providerInstanceRepo: MessagingProviderInstanceRepository;
+  instanceService: MessagingProviderInstanceService;
   webhookSecret: string;
   enabled: boolean;
 }
@@ -26,7 +26,7 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 export function webhooksZapiRoutes(deps: WebhooksZapiDeps) {
-  const { groupMessagesService, providerInstanceRepo, webhookSecret, enabled } = deps;
+  const { groupMessagesService, instanceService, webhookSecret, enabled } = deps;
 
   return new Elysia({ tags: ["webhooks"] }).post(
     "/webhooks/zapi/on-message-received",
@@ -68,7 +68,7 @@ export function webhooksZapiRoutes(deps: WebhooksZapiDeps) {
         return { status: "ignored", reason: result.reason };
       }
 
-      const providerInstanceId = await resolveProviderInstanceId(providerInstanceRepo, result.data);
+      const providerInstanceId = await resolveProviderInstanceId(instanceService, result.data);
 
       const outcome = await groupMessagesService.ingestZapi(result.data, { providerInstanceId });
 
@@ -83,14 +83,14 @@ export function webhooksZapiRoutes(deps: WebhooksZapiDeps) {
 }
 
 async function resolveProviderInstanceId(
-  repo: MessagingProviderInstanceRepository,
+  instanceService: MessagingProviderInstanceService,
   normalized: NormalizedZapiMessage
 ): Promise<string | null> {
   const zapiInstanceExternalId = normalized.zapi.instanceExternalId;
   if (!zapiInstanceExternalId) return null;
 
   try {
-    return await repo.findProviderInstanceIdByZapiInstanceId(zapiInstanceExternalId);
+    return await instanceService.resolveProviderInstanceIdByZapiInstanceId(zapiInstanceExternalId);
   } catch (err) {
     logger.warn(
       { err, zapiInstanceExternalId },

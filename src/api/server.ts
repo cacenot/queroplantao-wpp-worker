@@ -1,7 +1,6 @@
 import { swagger } from "@elysiajs/swagger";
 import { Elysia } from "elysia";
 import { env } from "../config/env.ts";
-import type { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
 import { logger } from "../lib/logger.ts";
 import type { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
 import type { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
@@ -19,7 +18,6 @@ export interface HttpServerOptions {
   taskService: TaskService;
   instanceService?: MessagingProviderInstanceService;
   groupMessagesService?: GroupMessagesService;
-  providerInstanceRepo?: MessagingProviderInstanceRepository;
   webhookSecret?: string;
   webhookEnabled?: boolean;
   isHealthy: () => boolean;
@@ -31,7 +29,6 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
     taskService,
     instanceService,
     groupMessagesService,
-    providerInstanceRepo,
     webhookSecret,
     webhookEnabled,
     isHealthy,
@@ -68,11 +65,11 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
     app.use(providerInstancesRoutes(instanceService));
   }
 
-  if (groupMessagesService && providerInstanceRepo && webhookSecret) {
+  if (groupMessagesService && instanceService && webhookSecret) {
     app.use(
       webhooksZapiRoutes({
         groupMessagesService,
-        providerInstanceRepo,
+        instanceService,
         webhookSecret,
         enabled: webhookEnabled ?? true,
       })

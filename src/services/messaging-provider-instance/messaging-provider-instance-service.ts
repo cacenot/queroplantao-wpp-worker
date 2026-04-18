@@ -66,6 +66,12 @@ export class MessagingProviderInstanceService {
     };
   }
 
+  async resolveProviderInstanceIdByZapiInstanceId(
+    zapiInstanceExternalId: string
+  ): Promise<string | null> {
+    return this.repo.findProviderInstanceIdByZapiInstanceId(zapiInstanceExternalId);
+  }
+
   async enable(id: string): Promise<InstanceView | null> {
     return this.setEnabledTransition(id, true);
   }

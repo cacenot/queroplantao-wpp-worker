@@ -1,119 +1,27 @@
-import type { Redis } from "ioredis";
-import { createModel } from "../ai/model.ts";
-import { classifyMessage } from "../ai/moderator.ts";
 import { env } from "../config/env.ts";
-import { createDbConnection, createDrizzleDb, type Db } from "../db/client.ts";
-import { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
-import { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
-import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
-import { TaskRepository } from "../db/repositories/task-repository.ts";
-import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
-import { QpAdminApiClient } from "../lib/qp-admin-api.ts";
-import { createRedisConnection } from "../lib/redis.ts";
-import { declareRetryTopology } from "../lib/retry-topology.ts";
-import { ProviderGateway } from "../messaging/gateway.ts";
-import { ProviderGatewayRegistry } from "../messaging/gateway-registry.ts";
-import type { MessagingProviderExecution } from "../messaging/types.ts";
-import type { WhatsAppProvider } from "../messaging/whatsapp/types.ts";
-import { ZApiClient } from "../messaging/whatsapp/zapi/client.ts";
-import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
-import { GroupSyncService, MessagingGroupsCache } from "../services/messaging-groups/index.ts";
-import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
-import type { ZApiProviderRegistryRow } from "../services/provider-registry/zod.ts";
-import { TaskService } from "../services/task/index.ts";
+import { buildDeps } from "./deps.ts";
 import { createJobHandler } from "./handler.ts";
-
-function mapExecutionStrategy(instance: {
-  executionStrategy: "leased" | "passthrough";
-  safetyTtlMs: number | null;
-  heartbeatIntervalMs: number | null;
-}): MessagingProviderExecution {
-  if (instance.executionStrategy === "passthrough") {
-    return { kind: "passthrough" };
-  }
-
-  return {
-    kind: "leased",
-    safetyTtlMs: instance.safetyTtlMs ?? undefined,
-    heartbeatIntervalMs: instance.heartbeatIntervalMs ?? undefined,
-  };
-}
-
-async function loadZApiProviderRows(db: Db): Promise<ZApiProviderRegistryRow[]> {
-  const registry = new ProviderRegistryReadService(db);
-  const instances = await registry.listEnabledZApiInstances();
-
-  if (instances.length === 0) {
-    throw new Error("Nenhuma instância Z-API habilitada encontrada no banco");
-  }
-
-  logger.info({ count: instances.length }, "Instâncias Z-API carregadas do banco");
-
-  return instances;
-}
-
-function rowToZApiConfig(row: ZApiProviderRegistryRow): ZApiInstanceConfig {
-  return {
-    providerInstanceId: row.providerId,
-    instance_id: row.instanceId,
-    instance_token: row.instanceToken,
-    client_token: env.ZAPI_CLIENT_TOKEN,
-    execution: mapExecutionStrategy(row),
-  };
-}
-
-async function buildWhatsappGatewayRegistry(
-  redis: Redis,
-  rows: ZApiProviderRegistryRow[]
-): Promise<ProviderGatewayRegistry<WhatsAppProvider>> {
-  const groups = new Map<string, ZApiProviderRegistryRow[]>();
-  for (const row of rows) {
-    const group = groups.get(row.redisKey) ?? [];
-    group.push(row);
-    groups.set(row.redisKey, group);
-  }
-
-  const registry = new ProviderGatewayRegistry<WhatsAppProvider>();
-
-  for (const [redisKey, groupRows] of groups) {
-    const providers = groupRows.map((row) => new ZApiClient(rowToZApiConfig(row)));
-    const gateway = new ProviderGateway<WhatsAppProvider>({
-      redis,
-      providers,
-      delayMinMs: env.ZAPI_DELAY_MIN_MS,
-      delayMaxMs: env.ZAPI_DELAY_MAX_MS,
-      redisKey,
-    });
-
-    await gateway.registerProviders();
-
-    for (const row of groupRows) {
-      registry.register(row.providerId, gateway);
-    }
-  }
-
-  return registry;
-}
 
 async function main() {
   logger.info("Iniciando wpp-worker");
 
-  const redis = createRedisConnection(env.REDIS_URL);
-  const sql = createDbConnection();
-  const db = createDrizzleDb(sql);
-  const zapiRows = await loadZApiProviderRows(db);
-  const whatsappGatewayRegistry = await buildWhatsappGatewayRegistry(redis, zapiRows);
+  const {
+    redis,
+    sql,
+    rabbit,
+    topology,
+    retryPublisher,
+    whatsappGatewayRegistry,
+    adminApi,
+    taskService,
+    moderationsRepo,
+    groupMessagesRepo,
+    groupSyncInterval,
+    classifyMessage,
+  } = await buildDeps();
 
-  const rabbit = createAmqpConnection();
-
-  const topology = await declareRetryTopology(rabbit);
-
-  const retryPublisher = rabbit.createPublisher({ confirm: true, maxAttempts: 2 });
-
-  const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
-  const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
-
+  // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
   let healthy = false;
 
   rabbit.on("connection", () => {
@@ -123,40 +31,10 @@ async function main() {
     healthy = false;
   });
 
-  const taskService = new TaskService({
-    repo: new TaskRepository(db),
-    publisher: retryPublisher,
-    queueName: env.AMQP_QUEUE,
-  });
-
-  const messagingGroupsRepo = new MessagingGroupsRepository(db);
-  const moderationsRepo = new MessageModerationsRepository(db);
-  const groupMessagesRepo = new GroupMessagesRepository(db);
-
-  const messagingGroupsCache = new MessagingGroupsCache({
-    redis,
-    repo: messagingGroupsRepo,
-    prefix: env.MESSAGING_GROUPS_REDIS_PREFIX,
-  });
-
-  const groupSyncService = new GroupSyncService({
-    adminApi,
-    repo: messagingGroupsRepo,
-    cache: messagingGroupsCache,
-  });
-
-  await groupSyncService.syncFromAdminApi();
-
-  const groupSyncInterval = setInterval(() => {
-    groupSyncService.syncFromAdminApi().catch((err) => {
-      logger.error({ err }, "Erro em ciclo de sync de grupos monitorados");
-    });
-  }, env.GROUPS_SYNC_INTERVAL_MS);
-  groupSyncInterval.unref?.();
-
+  // --- Consumer AMQP: processa jobs da fila ---
   const handleMessage = createJobHandler({
     whatsappGatewayRegistry,
-    classifyMessage: (text) => classifyMessage(text, analyzeMessageModel),
+    classifyMessage,
     adminApi,
     taskService,
     moderationsRepo,
@@ -184,6 +62,7 @@ async function main() {
 
   logger.info({ queue: env.AMQP_QUEUE }, "Worker ativo — aguardando jobs");
 
+  // --- Servidor HTTP de health check ---
   const healthServer = Bun.serve({
     port: env.WORKER_HEALTH_PORT,
     fetch(req) {
@@ -200,6 +79,7 @@ async function main() {
 
   logger.info({ port: healthServer.port }, "Health check server iniciado");
 
+  // --- Graceful shutdown: fecha todas as conexões em ordem ---
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando worker");
     try {
