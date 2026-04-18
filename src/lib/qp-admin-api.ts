@@ -37,7 +37,7 @@ export class QpAdminApiClient {
   ) {}
 
   async listMessagingGroups(): Promise<AdminMessagingGroup[]> {
-    const response = await this.request("api/internal/messaging-groups", { method: "GET" });
+    const response = await this.request("api/external/groups", { method: "GET" });
     const body = (await response.json()) as { data: AdminMessagingGroup[] } | AdminMessagingGroup[];
     return Array.isArray(body) ? body : body.data;
   }
