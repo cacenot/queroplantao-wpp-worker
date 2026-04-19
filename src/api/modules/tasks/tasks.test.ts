@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 const VALID_API_KEY = "test-api-key-secret";
 
@@ -14,7 +14,8 @@ process.env.REDIS_URL = "redis://localhost:6379";
 process.env.MODERATION_VERSION = "v1";
 process.env.ZAPI_RECEIVED_WEBHOOK_SECRET = "test-webhook-secret";
 
-const { startHttpServer } = await import("../server.ts");
+const { Elysia } = await import("elysia");
+const { tasksModule } = await import("./index.ts");
 
 interface ErrorResponse {
   error: string;
@@ -24,10 +25,6 @@ interface ErrorResponse {
 interface AcceptedResponse {
   accepted: number;
   duplicates: number;
-}
-
-interface HealthResponse {
-  status: string;
 }
 
 function makeTaskService() {
@@ -45,6 +42,11 @@ function makeTaskService() {
 }
 
 type MockTaskService = ReturnType<typeof makeTaskService>;
+
+function buildApp(taskService: MockTaskService) {
+  // biome-ignore lint/suspicious/noExplicitAny: mock de TaskService para testes
+  return new Elysia().use(tasksModule({ taskService: taskService as any }));
+}
 
 const PROVIDER_INSTANCE_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -75,80 +77,76 @@ function makeRemoveParticipantJob(id = "550e8400-e29b-41d4-a716-446655440002") {
   };
 }
 
-function postTasks(baseUrl: string, body: unknown, apiKey?: string | null) {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+function postTasks(
+  app: ReturnType<typeof buildApp>,
+  body: unknown,
+  apiKey?: string | null,
+  rawBody?: string
+) {
+  const headers = new Headers({ "content-type": "application/json" });
   if (apiKey !== null) {
-    headers["x-api-key"] = apiKey ?? VALID_API_KEY;
+    headers.set("x-api-key", apiKey ?? VALID_API_KEY);
   }
 
-  return fetch(`${baseUrl}/tasks`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  return app.handle(
+    new Request("http://localhost/tasks", {
+      method: "POST",
+      headers,
+      body: rawBody ?? JSON.stringify(body),
+    })
+  );
 }
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-let server: ReturnType<typeof startHttpServer>;
 let taskService: MockTaskService;
-let baseUrl: string;
+let app: ReturnType<typeof buildApp>;
 
-beforeAll(() => {
+beforeEach(() => {
   taskService = makeTaskService();
-  // biome-ignore lint/suspicious/noExplicitAny: mock de TaskService para testes
-  server = startHttpServer({ taskService: taskService as any, isHealthy: () => true, port: 0 });
-  baseUrl = `http://localhost:${server.port}`;
-});
-
-afterAll(async () => {
-  await server.stop();
+  app = buildApp(taskService);
 });
 
 describe("POST /tasks", () => {
   describe("autenticação", () => {
     it("401 quando x-api-key está ausente", async () => {
-      const res = await postTasks(baseUrl, [makeDeleteMessageJob()], null);
+      const res = await postTasks(app, [makeDeleteMessageJob()], null);
       expect(res.status).toBe(401);
     });
 
     it("401 quando x-api-key está incorreta", async () => {
-      const res = await postTasks(baseUrl, [makeDeleteMessageJob()], "wrong-key");
+      const res = await postTasks(app, [makeDeleteMessageJob()], "wrong-key");
       expect(res.status).toBe(401);
     });
 
     it("401 quando x-api-key está vazia", async () => {
-      const res = await postTasks(baseUrl, [makeDeleteMessageJob()], "");
+      const res = await postTasks(app, [makeDeleteMessageJob()], "");
       expect(res.status).toBe(401);
     });
   });
 
   describe("validação do body", () => {
     it("400 quando body não é JSON válido", async () => {
-      const res = await fetch(`${baseUrl}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": VALID_API_KEY },
-        body: "not-json{{{",
-      });
+      const res = await postTasks(app, null, VALID_API_KEY, "not-json{{{");
       expect(res.status).toBe(400);
       const data = await readJson<ErrorResponse>(res);
       expect(data.error).toBe("Invalid JSON");
     });
 
     it("400 quando body não é um array", async () => {
-      const res = await postTasks(baseUrl, { not: "an-array" });
+      const res = await postTasks(app, { not: "an-array" });
       expect(res.status).toBe(400);
     });
 
     it("400 quando array está vazio", async () => {
-      const res = await postTasks(baseUrl, []);
+      const res = await postTasks(app, []);
       expect(res.status).toBe(400);
     });
 
     it("400 quando um job tem schema inválido", async () => {
-      const res = await postTasks(baseUrl, [{ type: "unknown_type", id: "x" }]);
+      const res = await postTasks(app, [{ type: "unknown_type", id: "x" }]);
       expect(res.status).toBe(400);
       const data = await readJson<ErrorResponse>(res);
       expect(data.details).toBeDefined();
@@ -158,19 +156,13 @@ describe("POST /tasks", () => {
       const jobs = Array.from({ length: 1001 }, (_, i) =>
         makeDeleteMessageJob(`550e8400-e29b-41d4-a716-${String(i).padStart(12, "0")}`)
       );
-      const res = await postTasks(baseUrl, jobs);
+      const res = await postTasks(app, jobs);
       expect(res.status).toBe(400);
     });
 
     it("413 quando payload excede 2 MB", async () => {
       const largeBody = JSON.stringify({ pad: "a".repeat(2 * 1024 * 1024 + 128) });
-
-      const res = await fetch(`${baseUrl}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": VALID_API_KEY },
-        body: largeBody,
-      });
-
+      const res = await postTasks(app, null, VALID_API_KEY, largeBody);
       expect(res.status).toBe(413);
       const data = await readJson<ErrorResponse>(res);
       expect(data.error).toBe("Payload too large");
@@ -179,13 +171,12 @@ describe("POST /tasks", () => {
 
   describe("happy path", () => {
     it("202 e chama enqueue para batch válido", async () => {
-      taskService.enqueue.mockClear();
       const jobs = [
         makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440010"),
         makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440011"),
       ];
 
-      const res = await postTasks(baseUrl, jobs);
+      const res = await postTasks(app, jobs);
 
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
@@ -195,9 +186,7 @@ describe("POST /tasks", () => {
     });
 
     it("202 para batch com um único job", async () => {
-      taskService.enqueue.mockClear();
-
-      const res = await postTasks(baseUrl, [makeDeleteMessageJob()]);
+      const res = await postTasks(app, [makeDeleteMessageJob()]);
 
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
@@ -206,13 +195,12 @@ describe("POST /tasks", () => {
     });
 
     it("202 para batch misto (delete_message + remove_participant)", async () => {
-      taskService.enqueue.mockClear();
       const jobs = [
         makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440020"),
         makeRemoveParticipantJob("550e8400-e29b-41d4-a716-446655440021"),
       ];
 
-      const res = await postTasks(baseUrl, jobs);
+      const res = await postTasks(app, jobs);
 
       expect(res.status).toBe(202);
       const data = await readJson<AcceptedResponse>(res);
@@ -220,10 +208,9 @@ describe("POST /tasks", () => {
     });
 
     it("passa os jobs validados para o enqueue", async () => {
-      taskService.enqueue.mockClear();
       const job = makeDeleteMessageJob("550e8400-e29b-41d4-a716-446655440030");
 
-      await postTasks(baseUrl, [job]);
+      await postTasks(app, [job]);
 
       expect(taskService.enqueue).toHaveBeenCalledTimes(1);
 
@@ -235,46 +222,5 @@ describe("POST /tasks", () => {
       expect(jobs).toHaveLength(1);
       expect(jobs[0]).toEqual(job);
     });
-  });
-});
-
-describe("GET /health", () => {
-  it("200 sem exigir autenticação", async () => {
-    const res = await fetch(`${baseUrl}/health`);
-    expect(res.status).toBe(200);
-    const data = await readJson<HealthResponse>(res);
-    expect(data.status).toBe("ok");
-  });
-
-  it("200 mesmo com api key inválida", async () => {
-    const res = await fetch(`${baseUrl}/health`, {
-      headers: { "x-api-key": "wrong" },
-    });
-    expect(res.status).toBe(200);
-  });
-});
-
-describe("rotas inválidas", () => {
-  it("404 para GET /tasks", async () => {
-    const res = await fetch(`${baseUrl}/tasks`, {
-      headers: { "x-api-key": VALID_API_KEY },
-    });
-    expect(res.status).toBe(404);
-  });
-
-  it("404 para POST /unknown", async () => {
-    const res = await fetch(`${baseUrl}/unknown`, {
-      method: "POST",
-      headers: { "x-api-key": VALID_API_KEY },
-    });
-    expect(res.status).toBe(404);
-  });
-
-  it("404 para DELETE /tasks", async () => {
-    const res = await fetch(`${baseUrl}/tasks`, {
-      method: "DELETE",
-      headers: { "x-api-key": VALID_API_KEY },
-    });
-    expect(res.status).toBe(404);
   });
 });

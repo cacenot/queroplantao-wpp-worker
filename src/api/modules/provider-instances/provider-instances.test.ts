@@ -19,9 +19,9 @@ process.env.ZAPI_RECEIVED_WEBHOOK_SECRET = "test-webhook-secret";
 
 const { Elysia } = await import("elysia");
 const { randomUUID } = await import("node:crypto");
-const { providerInstancesRoutes } = await import("./provider-instances.ts");
+const { providerInstancesModule } = await import("./index.ts");
 const { MessagingProviderInstanceService } = await import(
-  "../../services/messaging-provider-instance/index.ts"
+  "../../../services/messaging-provider-instance/index.ts"
 );
 
 import type {
@@ -29,13 +29,13 @@ import type {
   InstanceFilters,
   InstanceWithZApi,
   Pagination,
-} from "../../db/repositories/messaging-provider-instance-repository.ts";
+} from "../../../db/repositories/messaging-provider-instance-repository.ts";
 import type {
   MessagingProviderInstance,
   NewMessagingProviderInstance,
   NewZApiInstance,
   ZApiInstance,
-} from "../../db/schema/provider-registry.ts";
+} from "../../../db/schema/provider-registry.ts";
 
 class FakeRepository {
   private base = new Map<string, MessagingProviderInstance>();
@@ -177,7 +177,7 @@ let app: ReturnType<typeof buildApp>;
 function buildApp(repository: FakeRepository) {
   // biome-ignore lint/suspicious/noExplicitAny: fake repository compat
   const service = new MessagingProviderInstanceService(repository as any);
-  return new Elysia().use(providerInstancesRoutes(service));
+  return new Elysia().use(providerInstancesModule({ instanceService: service }));
 }
 
 function makeRequest(

@@ -2,12 +2,8 @@ import { swagger } from "@elysiajs/swagger";
 import { Elysia } from "elysia";
 import { env } from "../config/env.ts";
 import { logger } from "../lib/logger.ts";
-import type { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
-import type { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
-import type { TaskService } from "../services/task/index.ts";
-import { providerInstancesRoutes } from "./routes/provider-instances.ts";
-import { tasksRoutes } from "./routes/tasks.ts";
-import { webhooksZapiRoutes } from "./routes/webhooks/zapi.ts";
+import { composeApp, type WebhookConfig } from "./app.ts";
+import type { ApiDeps } from "./deps.ts";
 
 export interface HttpServerHandle {
   stop(): Promise<void> | void;
@@ -15,25 +11,14 @@ export interface HttpServerHandle {
 }
 
 export interface HttpServerOptions {
-  taskService: TaskService;
-  instanceService?: MessagingProviderInstanceService;
-  groupMessagesService?: GroupMessagesService;
-  webhookSecret?: string;
-  webhookEnabled?: boolean;
+  deps: ApiDeps;
+  webhookConfig: WebhookConfig;
   isHealthy: () => boolean;
   port?: number;
 }
 
 export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
-  const {
-    taskService,
-    instanceService,
-    groupMessagesService,
-    webhookSecret,
-    webhookEnabled,
-    isHealthy,
-    port: portOverride,
-  } = options;
+  const { deps, webhookConfig, isHealthy, port: portOverride } = options;
 
   const app = new Elysia()
     .use(
@@ -59,22 +44,7 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
       if (!ok) set.status = 503;
       return { status: ok ? "ok" : "degraded" };
     })
-    .use(tasksRoutes(taskService));
-
-  if (instanceService) {
-    app.use(providerInstancesRoutes(instanceService));
-  }
-
-  if (groupMessagesService && instanceService && webhookSecret) {
-    app.use(
-      webhooksZapiRoutes({
-        groupMessagesService,
-        instanceService,
-        webhookSecret,
-        enabled: webhookEnabled ?? true,
-      })
-    );
-  }
+    .use(composeApp(deps, webhookConfig));
 
   app.listen(portOverride ?? env.HTTP_PORT);
 

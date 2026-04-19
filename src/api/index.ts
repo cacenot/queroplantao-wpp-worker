@@ -6,27 +6,25 @@ import { startHttpServer } from "./server.ts";
 async function main() {
   logger.info("Iniciando wpp-api");
 
-  const { sql, redis, rabbit, publisher, taskService, instanceService, groupMessagesService } =
-    await buildDeps();
+  const deps = await buildDeps();
 
   // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
   let healthy = false;
 
-  rabbit.on("connection", () => {
+  deps.rabbit.on("connection", () => {
     healthy = true;
   });
-  rabbit.on("error", () => {
+  deps.rabbit.on("error", () => {
     healthy = false;
   });
 
   // --- Servidor HTTP ---
   const httpServer = startHttpServer({
-    taskService,
-    instanceService,
-    groupMessagesService,
-
-    webhookSecret: env.ZAPI_RECEIVED_WEBHOOK_SECRET,
-    webhookEnabled: env.ZAPI_RECEIVED_WEBHOOK_ENABLED,
+    deps,
+    webhookConfig: {
+      secret: env.ZAPI_RECEIVED_WEBHOOK_SECRET,
+      enabled: env.ZAPI_RECEIVED_WEBHOOK_ENABLED,
+    },
     isHealthy: () => healthy,
   });
 
@@ -37,10 +35,10 @@ async function main() {
     logger.info({ signal }, "Sinal recebido — encerrando api");
     try {
       await httpServer.stop();
-      await publisher.close();
-      await rabbit.close();
-      await redis.quit();
-      await sql.end({ timeout: 5 });
+      await deps.publisher.close();
+      await deps.rabbit.close();
+      await deps.redis.quit();
+      await deps.sql.end({ timeout: 5 });
     } catch (err) {
       logger.warn({ err }, "Erro ao fechar conexões durante shutdown");
     }

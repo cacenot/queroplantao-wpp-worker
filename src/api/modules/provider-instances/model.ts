@@ -1,6 +1,6 @@
-import { t } from "elysia";
+import { Elysia, t } from "elysia";
 
-const instanceZApiViewSchema = t.Object({
+export const instanceZApiViewSchema = t.Object({
   zapiInstanceId: t.String(),
   instanceTokenMasked: t.String(),
   webhookBaseUrl: t.Nullable(t.String()),
@@ -39,7 +39,7 @@ export const instanceViewSchema = t.Object({
   zapi: t.Nullable(instanceZApiViewSchema),
 });
 
-export const createZApiInstanceBodySchema = t.Object({
+const createBodySchema = t.Object({
   displayName: t.String({ minLength: 1, maxLength: 200 }),
   zapiInstanceId: t.String({ minLength: 1 }),
   instanceToken: t.String({ minLength: 1 }),
@@ -50,7 +50,7 @@ export const createZApiInstanceBodySchema = t.Object({
   heartbeatIntervalMs: t.Optional(t.Integer({ minimum: 1 })),
 });
 
-export const listQuerySchema = t.Object({
+const listQuerySchema = t.Object({
   limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, default: 20 })),
   offset: t.Optional(t.Numeric({ minimum: 0, default: 0 })),
   protocol: t.Optional(t.Union([t.Literal("whatsapp"), t.Literal("telegram")])),
@@ -65,20 +65,20 @@ export const listQuerySchema = t.Object({
   isEnabled: t.Optional(t.BooleanString()),
 });
 
-export const idParamSchema = t.Object({
+const idParamSchema = t.Object({
   id: t.String({ format: "uuid" }),
 });
 
-export const createResponseSchema = t.Object({
+const createResponseSchema = t.Object({
   data: instanceViewSchema,
   warning: t.String(),
 });
 
-export const getResponseSchema = t.Object({
+const getResponseSchema = t.Object({
   data: instanceViewSchema,
 });
 
-export const listResponseSchema = t.Object({
+const listResponseSchema = t.Object({
   data: t.Array(instanceViewSchema),
   pagination: t.Object({
     limit: t.Integer(),
@@ -87,12 +87,17 @@ export const listResponseSchema = t.Object({
   }),
 });
 
-export const toggleResponseSchema = t.Object({
+const toggleResponseSchema = t.Object({
   data: instanceViewSchema,
   warning: t.String(),
 });
 
-export const errorResponseSchema = t.Object({
-  error: t.String(),
-  details: t.Optional(t.Unknown()),
+export const providerInstancesModel = new Elysia({ name: "providerInstancesModel" }).model({
+  "providerInstances.create.body": createBodySchema,
+  "providerInstances.list.query": listQuerySchema,
+  "providerInstances.id.params": idParamSchema,
+  "providerInstances.create.response": createResponseSchema,
+  "providerInstances.get.response": getResponseSchema,
+  "providerInstances.list.response": listResponseSchema,
+  "providerInstances.toggle.response": toggleResponseSchema,
 });

@@ -1,18 +1,6 @@
-import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 import { Elysia } from "elysia";
 import { env } from "../../config/env.ts";
-
-function timingSafeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-
-  if (bufA.byteLength !== bufB.byteLength) {
-    cryptoTimingSafeEqual(bufA, bufA);
-    return false;
-  }
-
-  return cryptoTimingSafeEqual(bufA, bufB);
-}
+import { timingSafeEqual } from "./timing-safe.ts";
 
 export const authPlugin = new Elysia({ name: "auth" }).onBeforeHandle(
   { as: "scoped" },

@@ -1,30 +1,33 @@
 import { Elysia } from "elysia";
-import { logger } from "../../lib/logger.ts";
+import { logger } from "../../../lib/logger.ts";
 import {
   ConflictError,
   type MessagingProviderInstanceService,
   RESTART_WARNING,
-} from "../../services/messaging-provider-instance/index.ts";
-import { authPlugin } from "../plugins/auth.ts";
-import {
-  createResponseSchema,
-  createZApiInstanceBodySchema,
-  errorResponseSchema,
-  getResponseSchema,
-  idParamSchema,
-  listQuerySchema,
-  listResponseSchema,
-  toggleResponseSchema,
-} from "../schemas/provider-instances.ts";
+} from "../../../services/messaging-provider-instance/index.ts";
+import { authPlugin } from "../../shared/auth.ts";
+import { errorResponseSchema } from "../../shared/error-envelope.ts";
+import { providerInstancesModel } from "./model.ts";
 
-export function providerInstancesRoutes(service: MessagingProviderInstanceService) {
-  return new Elysia({ prefix: "/providers/instances", tags: ["providers"] })
+export interface ProviderInstancesModuleDeps {
+  instanceService: MessagingProviderInstanceService;
+}
+
+export function providerInstancesModule(deps: ProviderInstancesModuleDeps) {
+  const { instanceService } = deps;
+
+  return new Elysia({
+    name: "provider-instances-module",
+    prefix: "/providers/instances",
+    tags: ["providers"],
+  })
     .use(authPlugin)
+    .use(providerInstancesModel)
     .post(
       "/",
       async ({ body, set }) => {
         try {
-          const view = await service.createZApiInstance(body);
+          const view = await instanceService.createZApiInstance(body);
           logger.info(
             { providerInstanceId: view.id, zapiInstanceId: view.zapi?.zapiInstanceId },
             "Provider instance criada via HTTP"
@@ -40,9 +43,9 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
         }
       },
       {
-        body: createZApiInstanceBodySchema,
+        body: "providerInstances.create.body",
         response: {
-          201: createResponseSchema,
+          201: "providerInstances.create.response",
           400: errorResponseSchema,
           401: errorResponseSchema,
           409: errorResponseSchema,
@@ -53,10 +56,10 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
     .get(
       "/",
       async ({ query }) => {
-        const limit = clamp(query.limit ?? 20, 1, 100);
+        const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
         const offset = Math.max(query.offset ?? 0, 0);
 
-        const result = await service.list(
+        return instanceService.list(
           {
             protocol: query.protocol,
             providerKind: query.providerKind,
@@ -64,13 +67,11 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
           },
           { limit, offset }
         );
-
-        return result;
       },
       {
-        query: listQuerySchema,
+        query: "providerInstances.list.query",
         response: {
-          200: listResponseSchema,
+          200: "providerInstances.list.response",
           401: errorResponseSchema,
         },
         detail: { summary: "Lista provider instances com paginação e filtros" },
@@ -79,7 +80,7 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
     .get(
       "/:id",
       async ({ params, set }) => {
-        const view = await service.get(params.id);
+        const view = await instanceService.get(params.id);
         if (!view) {
           set.status = 404;
           return { error: "Instance not found" };
@@ -87,9 +88,9 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
         return { data: view };
       },
       {
-        params: idParamSchema,
+        params: "providerInstances.id.params",
         response: {
-          200: getResponseSchema,
+          200: "providerInstances.get.response",
           401: errorResponseSchema,
           404: errorResponseSchema,
         },
@@ -99,7 +100,7 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
     .patch(
       "/:id/enable",
       async ({ params, set }) => {
-        const view = await service.enable(params.id);
+        const view = await instanceService.enable(params.id);
         if (!view) {
           set.status = 404;
           return { error: "Instance not found" };
@@ -108,9 +109,9 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
         return { data: view, warning: RESTART_WARNING };
       },
       {
-        params: idParamSchema,
+        params: "providerInstances.id.params",
         response: {
-          200: toggleResponseSchema,
+          200: "providerInstances.toggle.response",
           401: errorResponseSchema,
           404: errorResponseSchema,
         },
@@ -120,7 +121,7 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
     .patch(
       "/:id/disable",
       async ({ params, set }) => {
-        const view = await service.disable(params.id);
+        const view = await instanceService.disable(params.id);
         if (!view) {
           set.status = 404;
           return { error: "Instance not found" };
@@ -129,17 +130,13 @@ export function providerInstancesRoutes(service: MessagingProviderInstanceServic
         return { data: view, warning: RESTART_WARNING };
       },
       {
-        params: idParamSchema,
+        params: "providerInstances.id.params",
         response: {
-          200: toggleResponseSchema,
+          200: "providerInstances.toggle.response",
           401: errorResponseSchema,
           404: errorResponseSchema,
         },
         detail: { summary: "Desabilita uma provider instance (idempotente)" },
       }
     );
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
