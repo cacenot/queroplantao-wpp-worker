@@ -36,6 +36,9 @@ const envSchema = z.object({
   // QP Admin API — usada para persistir resultados de análise de mensagens
   QP_ADMIN_API_URL: z.string().url({ message: "QP_ADMIN_API_URL deve ser uma URL válida" }),
   QP_ADMIN_API_TOKEN: z.string().min(1, { message: "QP_ADMIN_API_TOKEN é obrigatória" }),
+  QP_ADMIN_API_SERVICE_TOKEN: z
+    .string()
+    .min(1, { message: "QP_ADMIN_API_SERVICE_TOKEN é obrigatória" }),
 
   // AI — chaves de API (opcionais — apenas a do provider ativo precisa estar definida)
   OPENAI_API_KEY: z.string().optional(),

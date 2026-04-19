@@ -28,7 +28,11 @@ export async function buildDeps() {
 
   // --- Serviços de domínio ---
   const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
-  const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
+  const adminApi = new QpAdminApiClient(
+    env.QP_ADMIN_API_URL,
+    env.QP_ADMIN_API_TOKEN,
+    env.QP_ADMIN_API_SERVICE_TOKEN
+  );
 
   const taskService = new TaskService({
     repo: new TaskRepository(db),

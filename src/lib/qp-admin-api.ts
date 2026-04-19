@@ -33,7 +33,8 @@ export class QpAdminApiError extends Error {
 export class QpAdminApiClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly token: string
+    private readonly token: string,
+    private readonly serviceToken: string
   ) {}
 
   async listMessagingGroups(): Promise<AdminMessagingGroup[]> {
@@ -64,15 +65,17 @@ export class QpAdminApiClient {
     const headers = new Headers(options.headers);
     headers.set("Authorization", `Bearer ${this.token}`);
     headers.set("Content-Type", "application/json");
+    headers.set("X-Service-Token", this.serviceToken);
 
     const response = await fetch(url, { ...options, headers });
 
     if (!response.ok) {
+      const text = await response.text();
       let body: unknown;
       try {
-        body = await response.json();
+        body = JSON.parse(text);
       } catch {
-        body = await response.text();
+        body = text;
       }
 
       throw new QpAdminApiError(

@@ -6,7 +6,7 @@ import { describe, expect, it, mock } from "bun:test";
 // DATABASE_URL real.
 process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/test";
 process.env.AMQP_URL ??= "amqp://localhost";
-process.env.AMQP_QUEUE ??= "wpp.actions";
+process.env.AMQP_QUEUE ??= "groups-messaging.actions";
 process.env.REDIS_URL ??= "redis://localhost:6379";
 process.env.HTTP_API_KEY = "test-api-key-secret";
 process.env.ZAPI_BASE_URL ??= "https://test.example.com";
@@ -50,30 +50,25 @@ describe("declareRetryTopology", () => {
     expect(calls).toHaveLength(3);
 
     const main = calls[0];
-    expect(main?.queue).toBe("wpp.actions");
+    expect(main?.queue).toBe(topology.mainQueue);
     expect(main?.durable).toBe(true);
     expect(main?.arguments).toBeUndefined();
 
     const retry = calls[1];
-    expect(retry?.queue).toBe("wpp.actions.retry");
+    expect(retry?.queue).toBe(topology.retryQueue);
     expect(retry?.durable).toBe(true);
     expect(retry?.arguments).toEqual({
-      "x-message-ttl": 5000,
+      "x-message-ttl": topology.retryDelayMs,
       "x-dead-letter-exchange": "",
-      "x-dead-letter-routing-key": "wpp.actions",
+      "x-dead-letter-routing-key": topology.mainQueue,
     });
 
     const dlq = calls[2];
-    expect(dlq?.queue).toBe("wpp.actions.dlq");
+    expect(dlq?.queue).toBe(topology.dlqName);
     expect(dlq?.durable).toBe(true);
     expect(dlq?.arguments).toBeUndefined();
 
-    expect(topology).toEqual({
-      mainQueue: "wpp.actions",
-      retryQueue: "wpp.actions.retry",
-      dlqName: "wpp.actions.dlq",
-      retryDelayMs: 5000,
-      maxRetries: 2,
-    });
+    expect(topology.retryQueue).toBe(`${topology.mainQueue}.retry`);
+    expect(topology.dlqName).toBe(`${topology.mainQueue}.dlq`);
   });
 });

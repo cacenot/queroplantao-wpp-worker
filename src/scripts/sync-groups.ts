@@ -12,7 +12,11 @@ const db = createDrizzleDb(sql);
 
 const repo = new MessagingGroupsRepository(db);
 const cache = new MessagingGroupsCache({ redis, repo, prefix: env.MESSAGING_GROUPS_REDIS_PREFIX });
-const adminApi = new QpAdminApiClient(env.QP_ADMIN_API_URL, env.QP_ADMIN_API_TOKEN);
+const adminApi = new QpAdminApiClient(
+  env.QP_ADMIN_API_URL,
+  env.QP_ADMIN_API_TOKEN,
+  env.QP_ADMIN_API_SERVICE_TOKEN
+);
 const syncService = new GroupSyncService({ adminApi, repo, cache });
 
 try {
