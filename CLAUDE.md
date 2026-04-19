@@ -51,6 +51,14 @@ Jobs, webhooks e rotas são discriminated unions Zod. O switch no handler delega
 - **HTTP I/O**: **TypeBox** (`import { t } from "elysia"`) — alimenta OpenAPI automático.
 - Nunca `as Record<string, unknown>` para ler entrada desconhecida — use `z.object({...}).safeParse()`.
 
+## Convenção de tipos
+
+- Use `type` em vez de `interface` em todo o codebase — mais expressivo, sem surpresa de declaration merging, consistente com `z.infer`.
+- Dentro de um módulo de service, dois arquivos de tipos possíveis:
+  - `schemas.ts` — schemas Zod + tipos inferidos via `z.infer`. Usado quando há parse em runtime.
+  - `types.ts` — tipos TypeScript puros (shapes de output, DTOs). Sem Zod.
+- Não crie `schemas.ts` onde não há parse real, nem `types.ts` onde todos os tipos já saem de `z.infer`.
+
 ## Erros
 
 - Retryable (transiente): `throw new Error(...)` ou erros nativos. Vão para retry queue até `maxRetries`, depois DLQ.

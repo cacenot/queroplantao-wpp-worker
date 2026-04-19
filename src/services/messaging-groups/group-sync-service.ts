@@ -3,18 +3,13 @@ import type { NewMessagingGroup } from "../../db/schema/messaging-groups.ts";
 import { logger } from "../../lib/logger.ts";
 import type { AdminMessagingGroup, QpAdminApiClient } from "../../lib/qp-admin-api.ts";
 import type { MessagingGroupsCache } from "./messaging-groups-cache.ts";
+import type { SyncResult } from "./types.ts";
 
-interface GroupSyncServiceOptions {
+type GroupSyncServiceOptions = {
   adminApi: QpAdminApiClient;
   repo: MessagingGroupsRepository;
   cache: MessagingGroupsCache;
-}
-
-export interface SyncResult {
-  fetched: number;
-  inserted: number;
-  updated: number;
-}
+};
 
 export class GroupSyncService {
   private readonly adminApi: QpAdminApiClient;

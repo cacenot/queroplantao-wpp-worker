@@ -3,7 +3,7 @@ import type { Task } from "../../db/schema/tasks.ts";
 export type TaskStatus = Task["status"];
 export type TaskType = Task["type"];
 
-export interface TaskView {
+export type TaskView = {
   id: string;
   type: TaskType;
   status: TaskStatus;
@@ -15,21 +15,21 @@ export interface TaskView {
   queuedAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
-}
+};
 
-export interface EnqueueResult {
+export type EnqueueResult = {
   accepted: number;
   duplicates: number;
   ids: string[];
-}
+};
 
-export interface TaskListFilters {
+export type TaskListFilters = {
   status?: TaskStatus;
   type?: TaskType;
-}
+};
 
-export interface PaginationMeta {
+export type PaginationMeta = {
   limit: number;
   offset: number;
   total: number;
-}
+};

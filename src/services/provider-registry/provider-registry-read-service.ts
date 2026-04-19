@@ -1,6 +1,6 @@
 import type { Db } from "../../db/client.ts";
 import { MessagingProviderInstanceRepository } from "../../db/repositories/messaging-provider-instance-repository.ts";
-import { parseZApiProviderRegistryRows, type ZApiProviderRegistryRow } from "./zod.ts";
+import { parseZApiProviderRegistryRows, type ZApiProviderRegistryRow } from "./schemas.ts";
 
 export class ProviderRegistryReadService {
   private readonly repo: MessagingProviderInstanceRepository;

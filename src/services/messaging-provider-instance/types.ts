@@ -1,4 +1,4 @@
-export interface InstanceZApiView {
+export type InstanceZApiView = {
   zapiInstanceId: string;
   instanceTokenMasked: string;
   webhookBaseUrl: string | null;
@@ -6,9 +6,9 @@ export interface InstanceZApiView {
   currentConnected: boolean | null;
   currentPhoneNumber: string | null;
   lastStatusSyncedAt: string | null;
-}
+};
 
-export interface InstanceView {
+export type InstanceView = {
   id: string;
   protocol: "whatsapp" | "telegram";
   providerKind: "whatsapp_zapi" | "whatsapp_whatsmeow" | "whatsapp_business_api" | "telegram_bot";
@@ -22,15 +22,15 @@ export interface InstanceView {
   updatedAt: string;
   archivedAt: string | null;
   zapi: InstanceZApiView | null;
-}
+};
 
-export interface PaginationMeta {
+export type PaginationMeta = {
   limit: number;
   offset: number;
   total: number;
-}
+};
 
-export interface CreateZApiInstanceInput {
+export type CreateZApiInstanceInput = {
   displayName: string;
   zapiInstanceId: string;
   instanceToken: string;
@@ -39,13 +39,13 @@ export interface CreateZApiInstanceInput {
   redisKey: string;
   safetyTtlMs?: number | null;
   heartbeatIntervalMs?: number | null;
-}
+};
 
-export interface ListFilters {
+export type ListFilters = {
   protocol?: "whatsapp" | "telegram";
   providerKind?: "whatsapp_zapi" | "whatsapp_whatsmeow" | "whatsapp_business_api" | "telegram_bot";
   isEnabled?: boolean;
-}
+};
 
 export const RESTART_WARNING = "A instância só será utilizada pelo worker após o próximo restart.";
 

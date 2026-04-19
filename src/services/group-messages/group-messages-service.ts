@@ -4,23 +4,14 @@ import type { MessageModerationsRepository } from "../../db/repositories/message
 import type { MessagingGroupsRepository } from "../../db/repositories/messaging-groups-repository.ts";
 import type { NewGroupMessage, NewGroupMessageZapi } from "../../db/schema/group-messages.ts";
 import type { MessageModeration } from "../../db/schema/message-moderations.ts";
+import type { NormalizedZapiMessage } from "../../gateways/whatsapp/zapi/message-normalizer.ts";
 import { logger } from "../../lib/logger.ts";
 import { computeContentHash, computeIngestionDedupeHash } from "../../lib/message-hash.ts";
-import type { NormalizedZapiMessage } from "../../messaging/whatsapp/zapi/message-normalizer.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
 import type { TaskService } from "../task/index.ts";
+import type { IngestContext, IngestOutcome } from "./types.ts";
 
-export type IngestOutcome =
-  | { status: "ignored"; reason: "group-not-monitored" }
-  | { status: "duplicate"; messageId: string }
-  | { status: "queued"; messageId: string; moderationId: string }
-  | { status: "reused"; messageId: string; moderationId: string; sourceModerationId: string };
-
-export interface IngestContext {
-  providerInstanceId: string | null;
-}
-
-export interface GroupMessagesServiceOptions {
+type GroupMessagesServiceOptions = {
   groupMessagesRepo: GroupMessagesRepository;
   moderationsRepo: MessageModerationsRepository;
   messagingGroupsRepo: MessagingGroupsRepository;
@@ -30,7 +21,7 @@ export interface GroupMessagesServiceOptions {
   ingestionDedupeWindowMs: number;
   moderationReuseWindowMs: number;
   moderationModelId: string;
-}
+};
 
 export class GroupMessagesService {
   constructor(private readonly options: GroupMessagesServiceOptions) {}
