@@ -50,6 +50,13 @@
       "when": 1776632776595,
       "tag": "0006_graceful_lenny_balinger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776636981149,
+      "tag": "0007_familiar_corsair",
+      "breakpoints": true
     }
   ]
 }

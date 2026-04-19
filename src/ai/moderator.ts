@@ -1,31 +1,26 @@
 import type { LanguageModel } from "ai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
+import { CATEGORIES } from "./categories.ts";
 
 export const messageAnalysisSchema = z.object({
   reason: z.string(),
   partner: z.enum(["quero-plantao", "inbram", "dgs"]).nullable(),
-  category: z.enum([
-    "job_opportunity",
-    "clean",
-    "competitor_promotion",
-    "service_sales",
-    "product_sales",
-    "off_topic",
-    "gambling_spam",
-    "piracy",
-    "profanity",
-    "adult_content",
-    "scam",
-    "other_spam",
-  ]),
+  category: z.enum(CATEGORIES),
   confidence: z.number(),
   action: z.enum(["allow", "remove", "ban"]),
 });
 
 export type MessageAnalysis = z.infer<typeof messageAnalysisSchema>;
 
-const SYSTEM_PROMPT = `Você é um moderador de conteúdo para grupos de WhatsApp/Telegram da plataforma Quero Plantão.
+export type ClassifyExample = {
+  text: string;
+  analysis: MessageAnalysis;
+  /** Comentário do admin; não é enviado ao modelo. */
+  note?: string;
+};
+
+export const DEFAULT_SYSTEM_PROMPT = `Você é um moderador de conteúdo para grupos de WhatsApp/Telegram da plataforma Quero Plantão.
 Os grupos existem EXCLUSIVAMENTE para conectar médicos e gestores/escalistas/recrutadores em todo o Brasil, com foco em divulgação de vagas, troca de plantões, discussões clínicas e networking profissional. O Quero Plantão não realiza intermediação contratual; a responsabilidade de validação (CRM, RQE) é das partes.
 
 Sua tarefa é analisar a mensagem e classificá-la. Você DEVE responder EXCLUSIVAMENTE com um JSON válido e puro. Não inclua formatação markdown, não use crases (\`\`\`), não adicione texto antes ou depois do JSON.
@@ -96,13 +91,31 @@ REGRA CRÍTICA off_topic: Para remover como off_topic, a mensagem DEVE ser compl
 ═══ PRINCÍPIO FUNDAMENTAL ═══
 Falso positivo é MUITO pior que falso negativo. Não seja excessivamente rígido com conversas de médicos. Na dúvida: allow > remove > ban.`;
 
+/**
+ * Renderiza examples como bloco formatado anexado ao system prompt.
+ * Preferido sobre `messages` few-shot porque `Output.object` usa tool-call
+ * interno — turnos assistant com JSON cru confundem o schema enforcement.
+ */
+function renderExamples(examples: ClassifyExample[]): string {
+  if (examples.length === 0) return "";
+  const blocks = examples.map((ex, i) => {
+    const out = JSON.stringify(ex.analysis);
+    return `Exemplo ${i + 1}:\nInput: ${JSON.stringify(ex.text)}\nOutput: ${out}`;
+  });
+  return `\n\n═══ EXEMPLOS ═══\n${blocks.join("\n\n")}`;
+}
+
 export async function classifyMessage(
   text: string,
-  model: LanguageModel
+  model: LanguageModel,
+  systemPrompt: string = DEFAULT_SYSTEM_PROMPT,
+  examples: ClassifyExample[] = []
 ): Promise<MessageAnalysis> {
+  const system = systemPrompt + renderExamples(examples);
+
   const { output } = await generateText({
     model,
-    system: SYSTEM_PROMPT,
+    system,
     prompt: text,
     output: Output.object({ schema: messageAnalysisSchema }),
   });

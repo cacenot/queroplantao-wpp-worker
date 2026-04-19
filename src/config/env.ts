@@ -64,6 +64,9 @@ const envSchema = z.object({
   // Prefixo das chaves Redis do cache de grupos monitorados (ex.: `${prefix}:whatsapp`).
   MESSAGING_GROUPS_REDIS_PREFIX: z.string().min(1).default("messaging_groups"),
 
+  // Prefixo das chaves Redis do cache da config ativa de moderação.
+  MODERATION_CONFIG_REDIS_PREFIX: z.string().min(1).default("moderation_config"),
+
   // Webhook público Z-API `on-message-received`.
   ZAPI_RECEIVED_WEBHOOK_ENABLED: z
     .string()

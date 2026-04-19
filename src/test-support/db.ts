@@ -54,6 +54,24 @@ export async function createTestDb(): Promise<{
       "started_at" timestamp with time zone,
       "completed_at" timestamp with time zone
     );
+    CREATE TABLE "${schemaName}"."moderation_configs" (
+      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "version" text NOT NULL UNIQUE,
+      "primary_model" text NOT NULL,
+      "escalation_model" text,
+      "escalation_threshold" numeric(3, 2),
+      "escalation_categories" text[] NOT NULL DEFAULT '{}'::text[],
+      "system_prompt" text NOT NULL,
+      "examples" jsonb NOT NULL DEFAULT '[]'::jsonb,
+      "is_active" boolean NOT NULL DEFAULT false,
+      "content_hash" text NOT NULL,
+      "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "activated_at" timestamp with time zone
+    );
+    CREATE UNIQUE INDEX "moderation_configs_active_idx_${schemaName}"
+      ON "${schemaName}"."moderation_configs" ("is_active")
+      WHERE "is_active" = true;
   `);
 
   const db = drizzle(sql, { schema });
