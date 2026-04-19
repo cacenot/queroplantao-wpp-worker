@@ -1,7 +1,10 @@
 import { env } from "../config/env.ts";
 import { logger } from "../lib/logger.ts";
+import { initSentry } from "../lib/sentry.ts";
 import { buildDeps } from "./deps.ts";
 import { createJobHandler } from "./handler.ts";
+
+initSentry();
 
 async function main() {
   logger.info("Iniciando wpp-worker");

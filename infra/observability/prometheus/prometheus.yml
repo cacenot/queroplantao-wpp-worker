@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    environment: production
+
+scrape_configs:
+  # Prometheus se auto-monitorando — útil pra ver se o scraper está saudável.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # LavinMQ — endpoint Prometheus nativo (porta 15692 por default).
+  # Docs: https://lavinmq.com/documentation/prometheus
+  # IMPORTANTE: o hostname `lavinmq` precisa ser resolvível na network `shared`.
+  # No Coolify, ajustar para o nome DNS interno do serviço LavinMQ no projeto.
+  - job_name: lavinmq
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["lavinmq:15692"]

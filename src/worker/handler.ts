@@ -16,6 +16,7 @@ import { NonRetryableError } from "../lib/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
+import { Sentry } from "../lib/sentry.ts";
 import type { TaskService } from "../services/task/index.ts";
 
 type ClassifyFn = (text: string) => Promise<MessageAnalysis>;
@@ -200,6 +201,11 @@ export function createJobHandler(options: JobHandlerOptions) {
       const retriesUsed = attemptNumber - 1;
       const canRetry = !isNonRetryable && retriesUsed < topology.maxRetries;
       const publishDeps: PublishDeps = { publisher, taskService, jobLog };
+
+      Sentry.captureException(err, {
+        tags: { jobType: job.type, terminal: String(!canRetry) },
+        extra: { jobId: job.id, attempt: attemptNumber, payload: job.payload },
+      });
 
       if (canRetry) {
         jobLog.warn(
