@@ -138,25 +138,6 @@ Campos comuns a todos os tipos:
 - `groupId`: `string` nao vazia
 - `phones`: array com pelo menos 1 telefone (`string` nao vazia)
 
-### Tipo `analyze_message`
-
-```json
-{
-  "id": "job-3",
-  "type": "analyze_message",
-  "createdAt": "2026-04-10T00:00:00Z",
-  "payload": {
-    "hash": "abc123",
-    "text": "mensagem a analisar"
-  }
-}
-```
-
-`payload` de `analyze_message`:
-
-- `hash`: `string` nao vazia
-- `text`: `string` nao vazia
-
 ## Exemplo completo de batch misto
 
 ```bash
@@ -182,15 +163,6 @@ curl -X POST http://localhost:3000/tasks \
         "groupId": "group-1",
         "phones": ["5511999990001"]
       }
-    },
-    {
-      "id": "job-am-1",
-      "type": "analyze_message",
-      "createdAt": "2026-04-10T12:02:00Z",
-      "payload": {
-        "hash": "abc123",
-        "text": "mensagem a analisar"
-      }
     }
   ]'
 ```
@@ -198,7 +170,7 @@ curl -X POST http://localhost:3000/tasks \
 Resposta esperada:
 
 ```json
-{ "accepted": 3 }
+{ "accepted": 2 }
 ```
 
 ## Provider Instances

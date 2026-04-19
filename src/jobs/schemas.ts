@@ -13,11 +13,6 @@ const removeParticipantPayloadSchema = z.object({
   phones: z.array(z.string().min(1)).min(1),
 });
 
-const analyzeMessagePayloadSchema = z.object({
-  hash: z.string().min(1),
-  text: z.string().min(1),
-});
-
 const moderateGroupMessagePayloadSchema = z.object({
   moderationId: z.string().uuid(),
 });
@@ -38,11 +33,6 @@ export const removeParticipantJobSchema = baseJobSchema.extend({
   payload: removeParticipantPayloadSchema,
 });
 
-export const analyzeMessageJobSchema = baseJobSchema.extend({
-  type: z.literal("whatsapp.analyze_message"),
-  payload: analyzeMessagePayloadSchema,
-});
-
 export const moderateGroupMessageJobSchema = baseJobSchema.extend({
   type: z.literal("whatsapp.moderate_group_message"),
   payload: moderateGroupMessagePayloadSchema,
@@ -51,7 +41,6 @@ export const moderateGroupMessageJobSchema = baseJobSchema.extend({
 export const jobSchema = z.discriminatedUnion("type", [
   deleteMessageJobSchema,
   removeParticipantJobSchema,
-  analyzeMessageJobSchema,
   moderateGroupMessageJobSchema,
 ]);
 

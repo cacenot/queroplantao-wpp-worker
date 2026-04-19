@@ -6,7 +6,6 @@ import { GroupMessagesRepository } from "../db/repositories/group-messages-repos
 import { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
-import { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { declareRetryTopology } from "../lib/retry-topology.ts";
 import { TaskService } from "../services/task/index.ts";
@@ -28,11 +27,6 @@ export async function buildDeps() {
 
   // --- Serviços de domínio ---
   const analyzeMessageModel = createModel(env.AI_MODEL_ANALYZE_MESSAGE);
-  const adminApi = new QpAdminApiClient(
-    env.QP_ADMIN_API_URL,
-    env.QP_ADMIN_API_TOKEN,
-    env.QP_ADMIN_API_SERVICE_TOKEN
-  );
 
   const taskService = new TaskService({
     repo: new TaskRepository(db),
@@ -50,7 +44,6 @@ export async function buildDeps() {
     topology,
     retryPublisher,
     whatsappGatewayRegistry,
-    adminApi,
     taskService,
     moderationsRepo,
     groupMessagesRepo,

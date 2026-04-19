@@ -39,7 +39,7 @@ export async function createTestDb(): Promise<{
       'pending', 'queued', 'running', 'succeeded', 'failed', 'dropped'
     );
     CREATE TYPE "${schemaName}"."task_type" AS ENUM (
-      'whatsapp.delete_message', 'whatsapp.remove_participant', 'whatsapp.analyze_message'
+      'whatsapp.delete_message', 'whatsapp.remove_participant', 'whatsapp.moderate_group_message'
     );
     CREATE TABLE "${schemaName}"."tasks" (
       "id" uuid PRIMARY KEY NOT NULL,

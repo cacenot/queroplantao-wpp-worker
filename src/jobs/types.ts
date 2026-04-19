@@ -2,11 +2,6 @@ import type { DeleteMessagePayload, RemoveParticipantPayload } from "../gateways
 
 export type { DeleteMessagePayload, RemoveParticipantPayload };
 
-export interface AnalyzeMessagePayload {
-  hash: string;
-  text: string;
-}
-
 export interface ModerateGroupMessagePayload {
   moderationId: string;
 }
@@ -23,13 +18,6 @@ export type Job =
       id: string;
       type: "whatsapp.remove_participant";
       payload: RemoveParticipantPayload;
-      createdAt: string;
-      attempt?: number;
-    }
-  | {
-      id: string;
-      type: "whatsapp.analyze_message";
-      payload: AnalyzeMessagePayload;
       createdAt: string;
       attempt?: number;
     }

@@ -1,5 +1,3 @@
-import type { MessageAnalysis } from "../ai/moderator.ts";
-
 export interface AdminMessagingGroup {
   id: string;
   externalId: string;
@@ -41,22 +39,6 @@ export class QpAdminApiClient {
     const response = await this.request("api/external/groups", { method: "GET" });
     const body = (await response.json()) as { data: AdminMessagingGroup[] } | AdminMessagingGroup[];
     return Array.isArray(body) ? body : body.data;
-  }
-
-  async submitMessageAnalysis(hash: string, analysis: MessageAnalysis): Promise<void> {
-    const response = await this.request(`api/internal/message-analysis/${hash}`, {
-      method: "POST",
-      body: JSON.stringify(analysis),
-    });
-
-    const body = (await response.json()) as { success: boolean };
-    if (!body.success) {
-      throw new QpAdminApiError(
-        `QP Admin API retornou success=false para hash ${hash}`,
-        response.status,
-        body
-      );
-    }
   }
 
   private async request(path: string, options: RequestInit = {}): Promise<Response> {

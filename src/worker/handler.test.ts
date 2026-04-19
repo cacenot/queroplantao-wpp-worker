@@ -22,7 +22,6 @@ import type { AsyncMessage } from "rabbitmq-client";
 import type { MessageAnalysis } from "../ai/moderator.ts";
 import type { GatewayRegistry } from "../gateways/gateway-registry.ts";
 import type { WhatsAppExecutor, WhatsAppProvider } from "../gateways/whatsapp/types.ts";
-import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
 import type { TaskService } from "../services/task/index.ts";
 
@@ -40,13 +39,6 @@ const DELETE_MESSAGE_JOB = {
     phone: "5511999990001",
     owner: true,
   },
-} as const;
-
-const ANALYZE_MESSAGE_JOB = {
-  id: "550e8400-e29b-41d4-a716-446655440002",
-  type: "whatsapp.analyze_message",
-  createdAt: "2026-04-10T00:00:00.000Z",
-  payload: { hash: "abc123", text: "hello" },
 } as const;
 
 const REMOVE_PARTICIPANT_JOB = {
@@ -112,12 +104,6 @@ function makeClassify(result?: MessageAnalysis) {
   return mock(() => Promise.resolve(result ?? defaultResult));
 }
 
-function makeAdminApi() {
-  return {
-    submitMessageAnalysis: mock(() => Promise.resolve()),
-  } as unknown as QpAdminApiClient;
-}
-
 function makeModerationsRepo() {
   return {
     create: mock(() => Promise.resolve({} as unknown)),
@@ -172,14 +158,12 @@ function makeHandler(
   const publisher = overrides.publisher ?? makePublisher();
   const topology = overrides.topology ?? makeTopology();
   const onSuccess = mock(() => {});
-  const adminApi = makeAdminApi();
   const moderationsRepo = makeModerationsRepo();
   const groupMessagesRepo = makeGroupMessagesRepo();
 
   const handler = createJobHandler({
     whatsappGatewayRegistry,
     classifyMessage: classifyMessage as unknown as (text: string) => Promise<MessageAnalysis>,
-    adminApi,
     // biome-ignore lint/suspicious/noExplicitAny: fake service tipado via makeTaskService
     taskService: taskService as any,
     // biome-ignore lint/suspicious/noExplicitAny: fake repo tipado via makeModerationsRepo
@@ -284,17 +268,6 @@ describe("handler — happy path", () => {
     expect(result).toBeUndefined();
     expect(executor.execute).toHaveBeenCalledTimes(1);
     expect(deps.taskService.markSucceeded).toHaveBeenCalledWith(REMOVE_PARTICIPANT_JOB.id);
-  });
-
-  it("analyze_message: chama classify + admin api e markSucceeded", async () => {
-    const classify = makeClassify();
-    const { handler, deps } = makeHandler({ classifyMessage: classify, taskService });
-
-    const result = await handler(makeMsg(ANALYZE_MESSAGE_JOB));
-
-    expect(result).toBeUndefined();
-    expect(classify).toHaveBeenCalledWith("hello");
-    expect(deps.taskService.markSucceeded).toHaveBeenCalledWith(ANALYZE_MESSAGE_JOB.id);
   });
 });
 

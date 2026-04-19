@@ -16,7 +16,6 @@ async function main() {
     topology,
     retryPublisher,
     whatsappGatewayRegistry,
-    adminApi,
     taskService,
     moderationsRepo,
     groupMessagesRepo,
@@ -37,7 +36,6 @@ async function main() {
   const handleMessage = createJobHandler({
     whatsappGatewayRegistry,
     classifyMessage,
-    adminApi,
     taskService,
     moderationsRepo,
     groupMessagesRepo,
