@@ -7,7 +7,7 @@ Regras e convenções para sessões de IA neste repositório. Para **o que** o c
 - **SRP**: uma função tem uma responsabilidade. Funções >80 linhas orquestrando 4+ coisas são sinal de refactor — extraia colaboradores puros.
 - **DRY pragmático**: duas ocorrências é aceitável; três justificam extração. Não crie abstração para um único uso futuro hipotético (YAGNI).
 - **Aninhamento**: máx 2 níveis. Mais que isso, inverta condição (early return) ou extraia.
-- **Comentários**: explicam o **porquê** (constraint, bug conhecido, decisão não-óbvia). Nunca o **o quê** — o nome já diz.
+- **Comentários**: explicam o **porquê** (constraint, bug conhecido, decisão não-óbvia). Nunca o **o quê** — o nome já diz. Exceção: funções de orquestração com 3+ etapas distintas podem usar seções comentadas (`// — Etapa: descrição`) para demarcar o fluxo.
 - **Nada de defesa supérflua**: não valide parâmetros de funções internas nem adicione error handling para cenários que não podem acontecer. Validar só em boundaries (HTTP, AMQP, external APIs).
 
 ## Padrões estabelecidos

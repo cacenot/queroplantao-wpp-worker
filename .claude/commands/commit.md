@@ -54,9 +54,9 @@ Se o biome modificar algum arquivo, isso é esperado — siga em frente.
 ### 4b. Em paralelo (um único bloco de tool-use)
 
 - `bun typecheck`
-- `bun infra && bun test:verbose`
+- `docker compose ps --status running -q | grep -q . || bun infra` seguido de `bun test:verbose`
 
-> `bun infra` é `docker compose up -d` (idempotente — não recria containers já rodando). É necessário antes dos testes de integração. `test:verbose` roda a suite completa (unit + integration) com logs visíveis.
+> Sempre verifique se a infra já está rodando antes de chamar `bun infra` (`docker compose up -d`) — subir containers já existentes causa erro de porta em uso. O check acima pula o `bun infra` se já houver containers rodando. `test:verbose` roda a suite completa (unit + integration) com logs visíveis.
 
 ### 4c. Falhas
 

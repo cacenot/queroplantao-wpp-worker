@@ -34,6 +34,7 @@ export class GroupMessagesService {
       ingestionDedupeWindowMs,
     } = this.options;
 
+    // — 1. Verificar se o grupo está sendo monitorado
     const monitored = await messagingGroupsCache.isMonitored(
       normalized.groupExternalId,
       normalized.protocol
@@ -42,6 +43,7 @@ export class GroupMessagesService {
       return { status: "ignored", reason: "group-not-monitored" };
     }
 
+    // — 2. Computar hashes para dedupe de ingestão e reuso de moderação
     const content = normalized.normalizedText ?? normalized.caption ?? "";
     const contentForHash = content || normalized.mediaUrl || "";
 
@@ -58,6 +60,7 @@ export class GroupMessagesService {
     );
     const contentHash = computeContentHash(contentForHash);
 
+    // — 3. Persistir mensagem (upsert por hash de dedupe)
     const messagingGroup = await messagingGroupsRepo.findByExternalId(normalized.groupExternalId);
 
     const messageRow: NewGroupMessage = {
@@ -107,6 +110,7 @@ export class GroupMessagesService {
       return { status: "duplicate", messageId: row.id };
     }
 
+    // — 4. Resolver moderação
     return this.resolveModeration(row.id, contentHash);
   }
 
@@ -120,6 +124,7 @@ export class GroupMessagesService {
       moderationModelId,
     } = this.options;
 
+    // — 1. Tentar reaproveitar moderação existente com mesmo conteúdo
     const cutoff = new Date(Date.now() - moderationReuseWindowMs);
     const cached = await moderationsRepo.findReusable(contentHash, moderationVersion, cutoff);
 
@@ -134,6 +139,7 @@ export class GroupMessagesService {
       };
     }
 
+    // — 2. Criar moderação nova e atualizar status da mensagem
     const fresh = await moderationsRepo.create({
       groupMessageId: messageId,
       contentHash,
@@ -145,6 +151,7 @@ export class GroupMessagesService {
 
     await groupMessagesRepo.setCurrentModeration(messageId, fresh.id, "pending");
 
+    // — 3. Enfileirar job de análise (best-effort — falha não aborta ingestão)
     try {
       await taskService.enqueue([
         {

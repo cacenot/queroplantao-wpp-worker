@@ -207,6 +207,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       pollIntervalMs = 100,
     } = options;
 
+    // — 1. Validar opções do gateway
     if (providers.length === 0) {
       throw new Error(`Nenhum provider configurado para ${redisKey}`);
     }
@@ -233,6 +234,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       );
     }
 
+    // — 2. Construir entradas de provider com execução resolvida
     const defaults: LeaseDefaults = {
       delayMinMs,
       delayMaxMs,
@@ -257,6 +259,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       } satisfies ProviderEntry<T>;
     });
 
+    // — 3. Atribuir campos e logar inicialização
     this.redis = redis;
     this.providerOrder = providerEntries;
     this.redisKey = redisKey;
@@ -363,6 +366,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
   private async tryAcquireEntry(entry: ProviderEntry<T>): Promise<ProviderPermit<T> | null> {
     const execution = entry.execution;
 
+    // — 1. Fast path: provider sem lease não precisa de coordenação Redis
     if (execution.kind === "passthrough") {
       return {
         provider: entry.provider,
@@ -370,6 +374,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       };
     }
 
+    // — 2. Tentar adquirir lease atômica no Redis
     const ownerToken = crypto.randomUUID();
     const acquired = await this.acquireLease(entry, execution, ownerToken);
 
@@ -377,6 +382,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       return null;
     }
 
+    // — 3. Iniciar heartbeat e montar permit com release
     const heartbeat = this.startLeaseHeartbeat(entry, execution, ownerToken);
 
     return {
@@ -456,10 +462,12 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     execution: ResolvedLeasedExecution,
     ownerToken: string
   ): { stop(): Promise<void> } {
+    // — 1. Estado mutável do heartbeat
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pendingRenewal: Promise<void> | null = null;
 
+    // — 2. Callback de renovação periódica
     const schedule = () => {
       if (stopped) {
         return;
@@ -501,6 +509,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
       }, execution.heartbeatIntervalMs);
     };
 
+    // — 3. Disparar heartbeat e retornar handle de parada
     schedule();
 
     return {

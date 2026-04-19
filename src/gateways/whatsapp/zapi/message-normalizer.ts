@@ -102,8 +102,7 @@ function isGifMime(mime: string | undefined | null): boolean {
 export function extractZapiGroupMessage(
   payload: ZapiReceivedWebhookPayload
 ): ZapiMessageNormalizerResult {
-  // Ordem de descarte: afasta o que não queremos persistir antes de extrair conteúdo.
-
+  // — 1. Descartar mensagens que não devem ser processadas
   if (payload.isNewsletter === true) {
     return { status: "ignored", reason: "newsletter" };
   }
@@ -148,6 +147,7 @@ export function extractZapiGroupMessage(
     return { status: "ignored", reason: "gif" };
   }
 
+  // — 2. Extrair e validar identificadores obrigatórios
   const groupExternalId = trimmed(payload.phone);
   const externalMessageId = trimmed(payload.messageId);
 
@@ -161,6 +161,7 @@ export function extractZapiGroupMessage(
     return { status: "ignored", reason: "missing-identifiers" };
   }
 
+  // — 3. Extrair e normalizar conteúdo da mensagem
   const extracted = extractContent(payload);
   if (!extracted) {
     return { status: "ignored", reason: "unsupported-content" };
@@ -169,6 +170,7 @@ export function extractZapiGroupMessage(
   const { messageType, messageSubtype, normalizedText, mediaUrl, thumbnailUrl, mimeType, caption } =
     extracted;
 
+  // — 4. Garantir que há texto moderável e montar resultado
   const hasText = normalizedText !== null && normalizedText.length > 0;
   const hasCaption = caption !== null && caption.length > 0;
 
