@@ -58,13 +58,6 @@ const envSchema = z.object({
     .positive()
     .default(15 * 24 * 60 * 60 * 1000),
 
-  // Sync de grupos monitorados (admin API → Postgres → Redis). Default: 5 min.
-  GROUPS_SYNC_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(5 * 60 * 1000),
-
   // Prefixo das chaves Redis do cache de grupos monitorados (ex.: `${prefix}:whatsapp`).
   MESSAGING_GROUPS_REDIS_PREFIX: z.string().min(1).default("messaging_groups"),
 

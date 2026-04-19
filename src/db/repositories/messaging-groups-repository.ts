@@ -38,6 +38,21 @@ export class MessagingGroupsRepository {
           syncedAt: sql`excluded.synced_at`,
           updatedAt: sql`now()`,
         },
+        setWhere: sql`
+          excluded.name                IS DISTINCT FROM ${messagingGroups.name}      OR
+          excluded.invite_url          IS DISTINCT FROM ${messagingGroups.inviteUrl} OR
+          excluded.image_url           IS DISTINCT FROM ${messagingGroups.imageUrl}  OR
+          excluded.country             IS DISTINCT FROM ${messagingGroups.country}   OR
+          excluded.uf                  IS DISTINCT FROM ${messagingGroups.uf}        OR
+          excluded.region              IS DISTINCT FROM ${messagingGroups.region}    OR
+          excluded.city                IS DISTINCT FROM ${messagingGroups.city}      OR
+          excluded.specialties         IS DISTINCT FROM ${messagingGroups.specialties}         OR
+          excluded.categories          IS DISTINCT FROM ${messagingGroups.categories}          OR
+          excluded.participant_count   IS DISTINCT FROM ${messagingGroups.participantCount}    OR
+          excluded.is_community_visible IS DISTINCT FROM ${messagingGroups.isCommunityVisible} OR
+          excluded.metadata            IS DISTINCT FROM ${messagingGroups.metadata}            OR
+          excluded.source_updated_at   IS DISTINCT FROM ${messagingGroups.sourceUpdatedAt}
+        `,
       })
       .returning({
         id: messagingGroups.id,

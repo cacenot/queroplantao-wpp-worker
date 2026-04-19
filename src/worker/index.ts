@@ -17,7 +17,6 @@ async function main() {
     taskService,
     moderationsRepo,
     groupMessagesRepo,
-    groupSyncInterval,
     classifyMessage,
   } = await buildDeps();
 
@@ -83,7 +82,6 @@ async function main() {
   async function shutdown(signal: string) {
     logger.info({ signal }, "Sinal recebido — encerrando worker");
     try {
-      clearInterval(groupSyncInterval);
       healthServer.stop();
       await consumer.close();
       await retryPublisher.close();

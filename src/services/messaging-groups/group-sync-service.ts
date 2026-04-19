@@ -32,12 +32,19 @@ export class GroupSyncService {
     try {
       remote = await this.adminApi.listMessagingGroups();
     } catch (err) {
-      logger.warn({ err }, "Falha ao buscar grupos na admin API — preservando estado local");
+      logger.warn(
+        { err },
+        "Falha ao buscar grupos na admin API — reconstruindo cache do banco local"
+      );
+      await this.rebuildCacheFromDb();
       return { fetched: 0, inserted: 0, updated: 0 };
     }
 
     if (remote.length === 0) {
-      logger.warn("Admin API retornou lista vazia — preservando estado local para evitar zerar");
+      logger.warn(
+        "Admin API retornou lista vazia — reconstruindo cache do banco local para evitar zerar"
+      );
+      await this.rebuildCacheFromDb();
       return { fetched: 0, inserted: 0, updated: 0 };
     }
 
