@@ -20,10 +20,10 @@ const { createJobHandler } = await import("./handler.ts");
 
 import type { AsyncMessage } from "rabbitmq-client";
 import type { MessageAnalysis } from "../ai/moderator.ts";
+import type { GatewayRegistry } from "../gateways/gateway-registry.ts";
+import type { WhatsAppExecutor, WhatsAppProvider } from "../gateways/whatsapp/types.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
-import type { GatewayRegistry } from "../messaging/gateway-registry.ts";
-import type { WhatsAppExecutor, WhatsAppProvider } from "../messaging/whatsapp/types.ts";
 import type { TaskService } from "../services/task/index.ts";
 
 type JobHandler = ReturnType<typeof createJobHandler>;

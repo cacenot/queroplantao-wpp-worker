@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { DeleteMessagePayload, WhatsAppExecutor } from "../../messaging/whatsapp/types.ts";
+import type { DeleteMessagePayload, WhatsAppExecutor } from "../../gateways/whatsapp/types.ts";
 import { deleteMessage } from "./delete-message.ts";
 
 function makeExecutor(impl: () => Promise<void> = () => Promise.resolve()): WhatsAppExecutor {

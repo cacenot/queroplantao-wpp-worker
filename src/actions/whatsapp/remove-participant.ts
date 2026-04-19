@@ -1,4 +1,4 @@
-import type { RemoveParticipantPayload, WhatsAppExecutor } from "../../messaging/whatsapp/types.ts";
+import type { RemoveParticipantPayload, WhatsAppExecutor } from "../../gateways/whatsapp/types.ts";
 
 /**
  * Remove participantes de um grupo WhatsApp.

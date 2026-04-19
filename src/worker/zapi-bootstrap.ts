@@ -1,15 +1,15 @@
 import type { Redis } from "ioredis";
 import { env } from "../config/env.ts";
 import type { Db } from "../db/client.ts";
+import { ProviderGateway } from "../gateways/gateway.ts";
+import { ProviderGatewayRegistry } from "../gateways/gateway-registry.ts";
+import type { MessagingProviderExecution } from "../gateways/types.ts";
+import type { WhatsAppProvider } from "../gateways/whatsapp/types.ts";
+import { ZApiClient } from "../gateways/whatsapp/zapi/client.ts";
+import type { ZApiInstanceConfig } from "../gateways/whatsapp/zapi/types.ts";
 import { logger } from "../lib/logger.ts";
-import { ProviderGateway } from "../messaging/gateway.ts";
-import { ProviderGatewayRegistry } from "../messaging/gateway-registry.ts";
-import type { MessagingProviderExecution } from "../messaging/types.ts";
-import type { WhatsAppProvider } from "../messaging/whatsapp/types.ts";
-import { ZApiClient } from "../messaging/whatsapp/zapi/client.ts";
-import type { ZApiInstanceConfig } from "../messaging/whatsapp/zapi/types.ts";
 import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
-import type { ZApiProviderRegistryRow } from "../services/provider-registry/zod.ts";
+import type { ZApiProviderRegistryRow } from "../services/provider-registry/schemas.ts";
 
 function mapExecutionStrategy(instance: {
   executionStrategy: "leased" | "passthrough";

@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { RemoveParticipantPayload, WhatsAppExecutor } from "../../messaging/whatsapp/types.ts";
+import type { RemoveParticipantPayload, WhatsAppExecutor } from "../../gateways/whatsapp/types.ts";
 import { removeParticipant } from "./remove-participant.ts";
 
 function makeExecutor(value: boolean): WhatsAppExecutor {

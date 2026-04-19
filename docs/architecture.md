@@ -77,9 +77,9 @@ Detalhes do sync de grupos monitorados: [`docs/messaging-groups-sync.md`](./mess
 | `src/api/routes/` | Um arquivo por grupo de rotas (`tasks.ts`, `provider-instances.ts`, `webhooks/{provider}.ts`). Validação (Zod para `/tasks`, TypeBox para o restante), publish no AMQP. | Código compartilhado entre rotas (extrair para `src/lib/`). |
 | `src/api/schemas/` | Schemas TypeBox reutilizáveis consumidos pelas rotas Elysia. Gera OpenAPI automaticamente. | Validação de domínio (fica em Zod). |
 | `src/worker/` | Entry point do worker, consumer AMQP, health check, `handler.ts` (router job → action). | HTTP server, providers. |
-| `src/messaging/` | Abstração cross-protocol: interface base, `ProviderGateway<T>`. | Lógica de negócio, conhecimento de jobs/AMQP. |
-| `src/messaging/{protocol}/` | Interface do protocolo (`WhatsAppProvider`, `TelegramProvider`) e payloads. | |
-| `src/messaging/{protocol}/{impl}/` | Implementação concreta do provider (ex.: `zapi/client.ts`). | |
+| `src/gateways/` | Abstração cross-protocol: interface base, `ProviderGateway<T>`. | Lógica de negócio, conhecimento de jobs/AMQP. |
+| `src/gateways/{protocol}/` | Interface do protocolo (`WhatsAppProvider`, `TelegramProvider`) e payloads. | |
+| `src/gateways/{protocol}/{impl}/` | Implementação concreta do provider (ex.: `zapi/client.ts`). | |
 | `src/actions/{protocol}/` | Lógica de negócio por plataforma. Recebem `Executor` injetado. | Conhecimento de AMQP, HTTP, provider concreto. |
 | `src/ai/` | Modelos e classificador LLM. | Lógica de ação. |
 | `src/jobs/` | Types e schemas Zod dos jobs que trafegam no AMQP. | Lógica de execução. |
@@ -90,7 +90,7 @@ Detalhes do sync de grupos monitorados: [`docs/messaging-groups-sync.md`](./mess
 | `src/config/` | `env.ts` — parse e validação de variáveis. | |
 | `src/scripts/` | Scripts auxiliares (spam watcher, bulk remove, moderação offline). | |
 
-**Regra geral de dependência:** `api` e `worker` dependem de `actions/messaging/jobs/ai`. `actions` dependem de `messaging` (interface) e `ai` e `db`. `messaging` não depende de `actions` nem de `jobs`. `lib` não depende de nada do domínio.
+**Regra geral de dependência:** `api` e `worker` dependem de `actions/gateways/jobs/ai`. `actions` dependem de `gateways` (interface) e `ai` e `db`. `gateways` não depende de `actions` nem de `jobs`. `lib` não depende de nada do domínio.
 
 ## Protocolos de messaging — por que interfaces separadas
 
@@ -193,8 +193,8 @@ rabbitmqadmin get queue=wpp.actions.retry count=10
 
 ### WhatsApp (ex.: WhatsMeow)
 
-1. Criar `src/messaging/whatsapp/whatsmeow/types.ts` com o shape de configuração da instância.
-2. Criar `src/messaging/whatsapp/whatsmeow/client.ts` com `class WhatsMeowClient implements WhatsAppProvider`. Deve expor `readonly instance: WhatsAppInstance` com `id = providerInstanceId` (UUID da linha em `messaging_provider_instances`).
+1. Criar `src/gateways/whatsapp/whatsmeow/types.ts` com o shape de configuração da instância.
+2. Criar `src/gateways/whatsapp/whatsmeow/client.ts` com `class WhatsMeowClient implements WhatsAppProvider`. Deve expor `readonly instance: WhatsAppInstance` com `id = providerInstanceId` (UUID da linha em `messaging_provider_instances`).
 3. Adicionar a tabela específica do provider em `src/db/schema/` e um service de leitura em `src/services/` para materializar configs habilitadas.
 4. Em `src/worker/index.ts`, adicionar as linhas whatsmeow ao fluxo de `buildWhatsappGatewayRegistry`: o registry já agrupa por `redis_key` e aceita providers de kinds distintos no mesmo pool.
 
@@ -202,8 +202,8 @@ Zero mudança nas actions.
 
 ### Telegram (protocolo novo)
 
-1. Criar `src/messaging/telegram/types.ts` com `TelegramProvider` estendendo `MessagingProvider`.
-2. Criar `src/messaging/telegram/{impl}/` com a implementação (ex.: `bot-api/`).
+1. Criar `src/gateways/telegram/types.ts` com `TelegramProvider` estendendo `MessagingProvider`.
+2. Criar `src/gateways/telegram/{impl}/` com a implementação (ex.: `bot-api/`).
 3. Em `src/worker/index.ts`, montar um `ProviderGatewayRegistry<TelegramProvider>` análogo ao do WhatsApp, agrupando instâncias Telegram por `redis_key`.
 4. Criar actions em `src/actions/telegram/`.
 5. Adicionar novos `type` ao discriminated union em `src/jobs/schemas.ts` com prefixo `telegram.` — os payloads precisam carregar `providerInstanceId` também. Estender o switch em `src/worker/handler.ts` resolvendo pelo registry Telegram.
@@ -304,7 +304,7 @@ Antes usávamos `Bun.serve` puro com 2 rotas. Com a adição do CRUD de provider
 
 ### Validação: Zod para domínio, TypeBox para I/O HTTP
 
-Zod continua sendo a ferramenta padrão para validação de domínio (`src/jobs/schemas.ts`, `src/services/provider-registry/zod.ts`, `src/config/env.ts`). Para as novas rotas Elysia usamos TypeBox (`import { t } from "elysia"`) porque é o que alimenta a geração automática do OpenAPI. A rota `POST /tasks` mantém Zod por hora — a complexidade do `discriminatedUnion` dos jobs não compensa a migração para TypeBox só para OpenAPI dessa rota específica.
+Zod continua sendo a ferramenta padrão para validação de domínio (`src/jobs/schemas.ts`, `src/services/provider-registry/schemas.ts`, `src/config/env.ts`). Para as novas rotas Elysia usamos TypeBox (`import { t } from "elysia"`) porque é o que alimenta a geração automática do OpenAPI. A rota `POST /tasks` mantém Zod por hora — a complexidade do `discriminatedUnion` dos jobs não compensa a migração para TypeBox só para OpenAPI dessa rota específica.
 
 ### Webhooks inbound como rotas HTTP, não módulo à parte
 

@@ -32,4 +32,4 @@ export const webhooksZapiModel = new Elysia({ name: "webhooksZapiModel" }).model
   ]),
 });
 
-export { zapiReceivedWebhookSchema } from "../../../messaging/whatsapp/zapi/webhook-schema.ts";
+export { zapiReceivedWebhookSchema } from "../../../gateways/whatsapp/zapi/webhook-schema.ts";

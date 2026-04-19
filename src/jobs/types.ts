@@ -1,7 +1,4 @@
-import type {
-  DeleteMessagePayload,
-  RemoveParticipantPayload,
-} from "../messaging/whatsapp/types.ts";
+import type { DeleteMessagePayload, RemoveParticipantPayload } from "../gateways/whatsapp/types.ts";
 
 export type { DeleteMessagePayload, RemoveParticipantPayload };
 

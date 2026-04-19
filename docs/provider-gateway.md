@@ -115,9 +115,9 @@ A API expõe `POST`/`GET`/`PATCH /providers/instances` para criar, consultar, ha
 
 ## Arquivos principais
 
-- `src/messaging/gateway.ts`
-- `src/messaging/gateway-registry.ts`
-- `src/messaging/types.ts`
+- `src/gateways/gateway.ts`
+- `src/gateways/gateway-registry.ts`
+- `src/gateways/types.ts`
 - `src/worker/index.ts`
 - `src/worker/handler.ts`
 - `src/services/provider-registry/provider-registry-read-service.ts`

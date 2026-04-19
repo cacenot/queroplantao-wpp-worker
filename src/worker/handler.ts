@@ -9,13 +9,13 @@ import { removeParticipant } from "../actions/whatsapp/remove-participant.ts";
 import type { MessageAnalysis } from "../ai/moderator.ts";
 import type { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
 import type { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
+import type { GatewayRegistry } from "../gateways/gateway-registry.ts";
+import type { WhatsAppExecutor, WhatsAppProvider } from "../gateways/whatsapp/types.ts";
 import { type JobSchema, jobSchema } from "../jobs/schemas.ts";
 import { NonRetryableError } from "../lib/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { QpAdminApiClient } from "../lib/qp-admin-api.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
-import type { GatewayRegistry } from "../messaging/gateway-registry.ts";
-import type { WhatsAppExecutor, WhatsAppProvider } from "../messaging/whatsapp/types.ts";
 import type { TaskService } from "../services/task/index.ts";
 
 type ClassifyFn = (text: string) => Promise<MessageAnalysis>;

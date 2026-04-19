@@ -1,9 +1,9 @@
 import { Elysia } from "elysia";
-import { logger } from "../../../lib/logger.ts";
 import {
   extractZapiGroupMessage,
   type NormalizedZapiMessage,
-} from "../../../messaging/whatsapp/zapi/message-normalizer.ts";
+} from "../../../gateways/whatsapp/zapi/message-normalizer.ts";
+import { logger } from "../../../lib/logger.ts";
 import type { GroupMessagesService } from "../../../services/group-messages/group-messages-service.ts";
 import type { MessagingProviderInstanceService } from "../../../services/messaging-provider-instance/index.ts";
 import { bodyLimitPlugin } from "../../shared/body-limit.ts";

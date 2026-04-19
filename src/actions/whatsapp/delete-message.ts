@@ -1,4 +1,4 @@
-import type { DeleteMessagePayload, WhatsAppExecutor } from "../../messaging/whatsapp/types.ts";
+import type { DeleteMessagePayload, WhatsAppExecutor } from "../../gateways/whatsapp/types.ts";
 
 export async function deleteMessage(
   payload: DeleteMessagePayload,
