@@ -6,6 +6,8 @@ import {
   type NewMessagingProviderInstance,
   type NewZApiInstance,
   type ZApiInstance,
+  zapiInstanceConnectionEvents,
+  zapiInstanceDeviceSnapshots,
   zapiInstances,
 } from "../schema/provider-registry.ts";
 
@@ -32,10 +34,65 @@ export interface EnabledZApiRow {
   displayName: string;
   executionStrategy: MessagingProviderInstance["executionStrategy"];
   redisKey: string;
-  safetyTtlMs: number | null;
-  heartbeatIntervalMs: number | null;
   instanceId: string;
   instanceToken: string;
+  customClientToken: string | null;
+}
+
+export type ZApiConnectionState =
+  | "unknown"
+  | "connected"
+  | "disconnected"
+  | "pending"
+  | "errored"
+  | "unreachable";
+
+export interface ZApiCurrentStatusUpdate {
+  currentConnectionState: ZApiConnectionState;
+  currentStatusReason: string | null;
+  currentConnected: boolean;
+  currentSmartphoneConnected: boolean;
+  currentPhoneNumber: string | null;
+  currentProfileName: string | null;
+  currentProfileAbout: string | null;
+  currentProfileImageUrl: string | null;
+  currentOriginalDevice: string | null;
+  currentSessionId: number | null;
+  currentDeviceSessionName: string | null;
+  currentDeviceModel: string | null;
+  currentIsBusiness: boolean | null;
+}
+
+export interface UpdateBasePatch {
+  displayName?: string;
+  executionStrategy?: MessagingProviderInstance["executionStrategy"];
+  redisKey?: string;
+}
+
+export interface ConnectionEventInsert {
+  source: "webhook" | "poll" | "bootstrap" | "manual";
+  eventType: string;
+  connected: boolean | null;
+  smartphoneConnected: boolean | null;
+  statusReason: string | null;
+  providerOccurredAt: Date | null;
+  dedupeKey: string | null;
+  rawPayload: unknown;
+}
+
+export interface DeviceSnapshotInsert {
+  source: "api_device" | "webhook" | "bootstrap" | "manual";
+  observedAt?: Date;
+  phoneNumber: string | null;
+  profileName: string | null;
+  profileAbout: string | null;
+  profileImageUrl: string | null;
+  originalDevice: string | null;
+  sessionId: number | null;
+  deviceSessionName: string | null;
+  deviceModel: string | null;
+  isBusiness: boolean | null;
+  rawPayload: unknown;
 }
 
 export class MessagingProviderInstanceRepository {
@@ -103,10 +160,9 @@ export class MessagingProviderInstanceRepository {
         displayName: messagingProviderInstances.displayName,
         executionStrategy: messagingProviderInstances.executionStrategy,
         redisKey: messagingProviderInstances.redisKey,
-        safetyTtlMs: messagingProviderInstances.safetyTtlMs,
-        heartbeatIntervalMs: messagingProviderInstances.heartbeatIntervalMs,
         instanceId: zapiInstances.zapiInstanceId,
         instanceToken: zapiInstances.instanceToken,
+        customClientToken: zapiInstances.customClientToken,
       })
       .from(messagingProviderInstances)
       .innerJoin(
@@ -174,6 +230,105 @@ export class MessagingProviderInstanceRepository {
       .returning();
 
     return updated ?? null;
+  }
+
+  // Callers garantem que ao menos um campo do patch é `!== undefined` — não
+  // precisamos do branch no-op.
+  async updateBase(
+    id: string,
+    patch: UpdateBasePatch,
+    tx?: DbOrTx
+  ): Promise<MessagingProviderInstance | null> {
+    const executor = tx ?? this.db;
+
+    const [updated] = await executor
+      .update(messagingProviderInstances)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(messagingProviderInstances.id, id))
+      .returning();
+
+    return updated ?? null;
+  }
+
+  async updateZApiCredentials(
+    id: string,
+    patch: { instanceToken?: string; customClientToken?: string | null },
+    tx?: DbOrTx
+  ): Promise<ZApiInstance | null> {
+    const executor = tx ?? this.db;
+
+    const [updated] = await executor
+      .update(zapiInstances)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(zapiInstances.messagingProviderInstanceId, id))
+      .returning();
+
+    return updated ?? null;
+  }
+
+  async updateZApiCurrentStatus(
+    id: string,
+    snapshot: ZApiCurrentStatusUpdate,
+    tx?: DbOrTx
+  ): Promise<void> {
+    const executor = tx ?? this.db;
+    const now = new Date();
+
+    await executor
+      .update(zapiInstances)
+      .set({
+        ...snapshot,
+        lastStatusSyncedAt: now,
+        lastDeviceSyncedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(zapiInstances.messagingProviderInstanceId, id));
+  }
+
+  async insertConnectionEvent(
+    providerInstanceId: string,
+    event: ConnectionEventInsert,
+    tx?: DbOrTx
+  ): Promise<void> {
+    const executor = tx ?? this.db;
+    await executor.insert(zapiInstanceConnectionEvents).values({
+      messagingProviderInstanceId: providerInstanceId,
+      ...event,
+    });
+  }
+
+  async insertDeviceSnapshot(
+    providerInstanceId: string,
+    snapshot: DeviceSnapshotInsert,
+    tx?: DbOrTx
+  ): Promise<void> {
+    const executor = tx ?? this.db;
+    await executor.insert(zapiInstanceDeviceSnapshots).values({
+      messagingProviderInstanceId: providerInstanceId,
+      ...snapshot,
+    });
+  }
+
+  async markUnreachableAndDisable(id: string, reason: string): Promise<void> {
+    const now = new Date();
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(zapiInstances)
+        .set({
+          currentConnectionState: "unreachable",
+          currentStatusReason: reason,
+          currentConnected: false,
+          lastStatusSyncedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(zapiInstances.messagingProviderInstanceId, id));
+
+      await tx
+        .update(messagingProviderInstances)
+        .set({ isEnabled: false, updatedAt: now })
+        .where(eq(messagingProviderInstances.id, id));
+    });
   }
 
   async withTransaction<T>(fn: (tx: DbOrTx) => Promise<T>): Promise<T> {

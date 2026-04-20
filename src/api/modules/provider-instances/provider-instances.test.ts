@@ -5,15 +5,14 @@ const VALID_API_KEY = "test-api-key-secret";
 process.env.AMQP_URL = "amqp://localhost";
 process.env.AMQP_QUEUE = "test-queue";
 process.env.ZAPI_BASE_URL = "https://test.example.com";
-process.env.ZAPI_INSTANCES = JSON.stringify([
-  { instance_id: "i1", instance_token: "t1", client_token: "c1" },
-]);
+process.env.ZAPI_CLIENT_TOKEN = "env-client-token";
 process.env.HTTP_API_KEY = VALID_API_KEY;
 process.env.HTTP_PORT = "0";
 process.env.REDIS_URL = "redis://localhost:6379";
 process.env.DATABASE_URL = "postgres://ignored";
 process.env.QP_ADMIN_API_URL = "https://admin.example.com";
 process.env.QP_ADMIN_API_TOKEN = "admin-token";
+process.env.QP_ADMIN_API_SERVICE_TOKEN = "service-token";
 process.env.ZAPI_RECEIVED_WEBHOOK_SECRET = "test-webhook-secret";
 
 const { Elysia } = await import("elysia");
@@ -24,10 +23,14 @@ const { MessagingProviderInstanceService } = await import(
 );
 
 import type {
+  ConnectionEventInsert,
+  DeviceSnapshotInsert,
   EnabledZApiRow,
   InstanceFilters,
   InstanceWithZApi,
   Pagination,
+  UpdateBasePatch,
+  ZApiCurrentStatusUpdate,
 } from "../../../db/repositories/messaging-provider-instance-repository.ts";
 import type {
   MessagingProviderInstance,
@@ -35,10 +38,21 @@ import type {
   NewZApiInstance,
   ZApiInstance,
 } from "../../../db/schema/provider-registry.ts";
+import type {
+  ZApiClientCredentials,
+  ZApiRefreshClient,
+} from "../../../services/messaging-provider-instance/messaging-provider-instance-service.ts";
+
+type SnapshotResult = Awaited<ReturnType<ZApiRefreshClient["refreshSnapshot"]>>;
 
 class FakeRepository {
-  private base = new Map<string, MessagingProviderInstance>();
-  private zapi = new Map<string, ZApiInstance>();
+  public base = new Map<string, MessagingProviderInstance>();
+  public zapi = new Map<string, ZApiInstance>();
+  public connectionEvents: Array<{ providerInstanceId: string; event: ConnectionEventInsert }> = [];
+  public deviceSnapshots: Array<{
+    providerInstanceId: string;
+    snapshot: DeviceSnapshotInsert;
+  }> = [];
 
   async findById(id: string): Promise<InstanceWithZApi | null> {
     const base = this.base.get(id);
@@ -89,8 +103,6 @@ class FakeRepository {
       isEnabled: base.isEnabled ?? true,
       executionStrategy: base.executionStrategy ?? "leased",
       redisKey: base.redisKey,
-      safetyTtlMs: base.safetyTtlMs ?? null,
-      heartbeatIntervalMs: base.heartbeatIntervalMs ?? null,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -100,7 +112,7 @@ class FakeRepository {
       messagingProviderInstanceId: id,
       zapiInstanceId: zapi.zapiInstanceId,
       instanceToken: zapi.instanceToken,
-      webhookBaseUrl: zapi.webhookBaseUrl ?? null,
+      customClientToken: zapi.customClientToken ?? null,
       currentConnectionState: null,
       currentStatusReason: null,
       currentConnected: null,
@@ -138,19 +150,135 @@ class FakeRepository {
     return updated;
   }
 
+  async updateBase(id: string, patch: UpdateBasePatch): Promise<MessagingProviderInstance | null> {
+    const existing = this.base.get(id);
+    if (!existing) return null;
+    const updated: MessagingProviderInstance = {
+      ...existing,
+      displayName: patch.displayName ?? existing.displayName,
+      executionStrategy: patch.executionStrategy ?? existing.executionStrategy,
+      redisKey: patch.redisKey ?? existing.redisKey,
+      updatedAt: new Date(Date.now() + 1),
+    };
+    this.base.set(id, updated);
+    return updated;
+  }
+
+  async updateZApiCredentials(
+    id: string,
+    patch: { instanceToken?: string; customClientToken?: string | null }
+  ): Promise<ZApiInstance | null> {
+    const existing = this.zapi.get(id);
+    if (!existing) return null;
+    const updated: ZApiInstance = {
+      ...existing,
+      instanceToken: patch.instanceToken ?? existing.instanceToken,
+      customClientToken:
+        patch.customClientToken !== undefined
+          ? patch.customClientToken
+          : existing.customClientToken,
+      updatedAt: new Date(Date.now() + 1),
+    };
+    this.zapi.set(id, updated);
+    return updated;
+  }
+
+  async updateZApiCurrentStatus(id: string, snapshot: ZApiCurrentStatusUpdate): Promise<void> {
+    const existing = this.zapi.get(id);
+    if (!existing) return;
+    const now = new Date();
+    this.zapi.set(id, {
+      ...existing,
+      ...snapshot,
+      lastStatusSyncedAt: now,
+      lastDeviceSyncedAt: now,
+      updatedAt: now,
+    });
+  }
+
+  async insertConnectionEvent(
+    providerInstanceId: string,
+    event: ConnectionEventInsert
+  ): Promise<void> {
+    this.connectionEvents.push({ providerInstanceId, event });
+  }
+
+  async insertDeviceSnapshot(
+    providerInstanceId: string,
+    snapshot: DeviceSnapshotInsert
+  ): Promise<void> {
+    this.deviceSnapshots.push({ providerInstanceId, snapshot });
+  }
+
+  async markUnreachableAndDisable(id: string, reason: string): Promise<void> {
+    const now = new Date();
+    const baseExisting = this.base.get(id);
+    const zapiExisting = this.zapi.get(id);
+    if (baseExisting) {
+      this.base.set(id, { ...baseExisting, isEnabled: false, updatedAt: now });
+    }
+    if (zapiExisting) {
+      this.zapi.set(id, {
+        ...zapiExisting,
+        currentConnectionState: "unreachable",
+        currentStatusReason: reason,
+        currentConnected: false,
+        lastStatusSyncedAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
   async withTransaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-    return fn({});
+    const baseSnapshot = new Map(this.base);
+    const zapiSnapshot = new Map(this.zapi);
+    const eventsLen = this.connectionEvents.length;
+    const snapshotsLen = this.deviceSnapshots.length;
+    try {
+      return await fn({});
+    } catch (err) {
+      this.base = baseSnapshot;
+      this.zapi = zapiSnapshot;
+      this.connectionEvents.length = eventsLen;
+      this.deviceSnapshots.length = snapshotsLen;
+      throw err;
+    }
   }
 }
+
+class FakeRedis {
+  public zremCalls: Array<{ key: string; member: string }> = [];
+
+  async zrem(key: string, member: string): Promise<number> {
+    this.zremCalls.push({ key, member });
+    return 1;
+  }
+}
+
+const connectedSnapshot: SnapshotResult = {
+  me: { phone: "5547999998888", name: "Clínica Teste", isBusiness: true },
+  device: {
+    device: { sessionName: "pixel-8", device_model: "Pixel 8" },
+    originalDevice: "PIXEL_8",
+    sessionId: 42,
+  },
+  status: { connected: true, smartphoneConnected: true },
+};
 
 interface InstanceViewResp {
   id: string;
   isEnabled: boolean;
   displayName: string;
+  redisKey: string;
   updatedAt: string;
   zapi: {
     zapiInstanceId: string;
     instanceTokenMasked: string;
+    customClientTokenMasked: string | null;
+    currentConnectionState: string | null;
+    currentConnected: boolean | null;
+    currentPhoneNumber: string | null;
+    lastStatusSyncedAt: string | null;
   } | null;
   [key: string]: unknown;
 }
@@ -170,13 +298,56 @@ interface ErrorResp {
   details?: unknown;
 }
 
-let repo: FakeRepository;
-let app: ReturnType<typeof buildApp>;
+interface TestCtx {
+  repo: FakeRepository;
+  redis: FakeRedis;
+  app: ReturnType<typeof buildApp>;
+  clientFactory: (creds: ZApiClientCredentials) => ZApiRefreshClient;
+  setSnapshot: (result: SnapshotResult | Error) => void;
+  capturedCredentials: ZApiClientCredentials[];
+}
 
-function buildApp(repository: FakeRepository) {
-  // biome-ignore lint/suspicious/noExplicitAny: fake repository compat
-  const service = new MessagingProviderInstanceService(repository as any);
+function buildApp(
+  repository: FakeRepository,
+  redis: FakeRedis,
+  clientFactory: (creds: ZApiClientCredentials) => ZApiRefreshClient
+) {
+  const service = new MessagingProviderInstanceService({
+    // biome-ignore lint/suspicious/noExplicitAny: fake repository compat
+    repo: repository as any,
+    // biome-ignore lint/suspicious/noExplicitAny: fake redis compat
+    redis: redis as any,
+    clientFactory,
+  });
   return new Elysia().use(providerInstancesModule({ instanceService: service }));
+}
+
+function buildCtx(initialSnapshot: SnapshotResult | Error = connectedSnapshot): TestCtx {
+  const repo = new FakeRepository();
+  const redis = new FakeRedis();
+  const capturedCredentials: ZApiClientCredentials[] = [];
+  let currentSnapshot: SnapshotResult | Error = initialSnapshot;
+
+  const clientFactory = (creds: ZApiClientCredentials): ZApiRefreshClient => {
+    capturedCredentials.push(creds);
+    return {
+      async refreshSnapshot() {
+        if (currentSnapshot instanceof Error) throw currentSnapshot;
+        return currentSnapshot;
+      },
+    };
+  };
+
+  return {
+    repo,
+    redis,
+    app: buildApp(repo, redis, clientFactory),
+    clientFactory,
+    setSnapshot: (s) => {
+      currentSnapshot = s;
+    },
+    capturedCredentials,
+  };
 }
 
 function makeRequest(
@@ -195,15 +366,15 @@ function makeRequest(
   return app.handle(new Request(`http://localhost${path}`, { ...init, headers }));
 }
 
+let ctx: TestCtx;
 beforeEach(() => {
-  repo = new FakeRepository();
-  app = buildApp(repo);
+  ctx = buildCtx();
 });
 
 describe("POST /providers/instances", () => {
   it("401 sem x-api-key", async () => {
     const res = await makeRequest(
-      app,
+      ctx.app,
       "/providers/instances",
       {
         method: "POST",
@@ -211,7 +382,6 @@ describe("POST /providers/instances", () => {
           displayName: "inst",
           zapiInstanceId: "i1",
           instanceToken: "tokenabcdef",
-          redisKey: "messaging:whatsapp",
         }),
       },
       null
@@ -219,88 +389,96 @@ describe("POST /providers/instances", () => {
     expect(res.status).toBe(401);
   });
 
-  it("401 com api key errada", async () => {
-    const res = await makeRequest(
-      app,
-      "/providers/instances",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          displayName: "inst",
-          zapiInstanceId: "i1",
-          instanceToken: "tokenabcdef",
-          redisKey: "messaging:whatsapp",
-        }),
-      },
-      "wrong-key"
-    );
-    expect(res.status).toBe(401);
-  });
-
-  it("201 no happy path com body mínimo", async () => {
-    const res = await makeRequest(app, "/providers/instances", {
+  it("201 no happy path com refresh bem-sucedido + redisKey default", async () => {
+    const res = await makeRequest(ctx.app, "/providers/instances", {
       method: "POST",
       body: JSON.stringify({
         displayName: "inst-01",
         zapiInstanceId: "i1",
         instanceToken: "supersecret1234",
-        redisKey: "messaging:whatsapp",
       }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as OkResp;
     expect(body.data.displayName).toBe("inst-01");
-    expect(body.data.isEnabled).toBe(true);
-    expect(body.data.redisKey).toBe("messaging:whatsapp");
-    expect(body.data.zapi?.zapiInstanceId).toBe("i1");
+    expect(body.data.redisKey).toBe("qp:whatsapp");
     expect(body.data.zapi?.instanceTokenMasked).toBe("supe...1234");
+    expect(body.data.zapi?.customClientTokenMasked).toBeNull();
+    expect(body.data.zapi?.currentConnected).toBe(true);
+    expect(body.data.zapi?.currentConnectionState).toBe("connected");
+    expect(body.data.zapi?.currentPhoneNumber).toBe("5547999998888");
+    expect(body.data.zapi?.lastStatusSyncedAt).toBeTruthy();
     expect(body.warning).toContain("restart");
-    // biome-ignore lint/suspicious/noExplicitAny: runtime shape check
-    expect((body.data.zapi as any).instanceToken).toBeUndefined();
+
+    expect(ctx.repo.connectionEvents.length).toBe(1);
+    expect(ctx.repo.connectionEvents[0]?.event.source).toBe("bootstrap");
+    expect(ctx.repo.deviceSnapshots.length).toBe(1);
+    expect(ctx.repo.deviceSnapshots[0]?.snapshot.source).toBe("bootstrap");
   });
 
-  it("422 quando displayName falta", async () => {
-    const res = await makeRequest(app, "/providers/instances", {
+  it("usa env.ZAPI_CLIENT_TOKEN quando customClientToken não informado", async () => {
+    await makeRequest(ctx.app, "/providers/instances", {
       method: "POST",
       body: JSON.stringify({
-        zapiInstanceId: "i1",
-        instanceToken: "tokenabcdef",
-        redisKey: "messaging:whatsapp",
-      }),
-    });
-    expect(res.status).toBe(422);
-  });
-
-  it("422 quando redisKey falta", async () => {
-    const res = await makeRequest(app, "/providers/instances", {
-      method: "POST",
-      body: JSON.stringify({
-        displayName: "inst-01",
+        displayName: "inst",
         zapiInstanceId: "i1",
         instanceToken: "tokenabcdef",
       }),
     });
-    expect(res.status).toBe(422);
+    expect(ctx.capturedCredentials[0]?.customClientToken).toBeNull();
+  });
+
+  it("persiste e mascara customClientToken quando informado", async () => {
+    const res = await makeRequest(ctx.app, "/providers/instances", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: "inst",
+        zapiInstanceId: "i1",
+        instanceToken: "tokenabcdef",
+        customClientToken: "customtoken9999",
+      }),
+    });
+    const body = (await res.json()) as OkResp;
+    expect(body.data.zapi?.customClientTokenMasked).toBe("cust...9999");
+    expect(ctx.capturedCredentials[0]?.customClientToken).toBe("customtoken9999");
+  });
+
+  it("502 + rollback quando Z-API falha no refresh do create", async () => {
+    ctx.setSnapshot(new Error("instance off"));
+
+    const res = await makeRequest(ctx.app, "/providers/instances", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: "inst",
+        zapiInstanceId: "i1",
+        instanceToken: "tokenabcdef",
+      }),
+    });
+    expect(res.status).toBe(502);
+
+    const list = await makeRequest(ctx.app, "/providers/instances");
+    const listBody = (await list.json()) as ListResp;
+    expect(listBody.pagination.total).toBe(0);
+    expect(ctx.repo.connectionEvents.length).toBe(0);
+    expect(ctx.repo.deviceSnapshots.length).toBe(0);
   });
 
   it("409 quando zapiInstanceId duplicado", async () => {
-    await makeRequest(app, "/providers/instances", {
+    await makeRequest(ctx.app, "/providers/instances", {
       method: "POST",
       body: JSON.stringify({
         displayName: "inst-01",
         zapiInstanceId: "dup",
         instanceToken: "tokenabcdef",
-        redisKey: "messaging:whatsapp",
       }),
     });
 
-    const res = await makeRequest(app, "/providers/instances", {
+    const res = await makeRequest(ctx.app, "/providers/instances", {
       method: "POST",
       body: JSON.stringify({
         displayName: "inst-02",
         zapiInstanceId: "dup",
         instanceToken: "other-token-value",
-        redisKey: "messaging:whatsapp",
       }),
     });
 
@@ -308,23 +486,165 @@ describe("POST /providers/instances", () => {
     const body = (await res.json()) as ErrorResp;
     expect(body.error).toContain("zapiInstanceId");
   });
+
+  it("422 quando displayName falta", async () => {
+    const res = await makeRequest(ctx.app, "/providers/instances", {
+      method: "POST",
+      body: JSON.stringify({
+        zapiInstanceId: "i1",
+        instanceToken: "tokenabcdef",
+      }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("aceita redisKey customizado (não é imutável)", async () => {
+    const res = await makeRequest(ctx.app, "/providers/instances", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: "inst",
+        zapiInstanceId: "i1",
+        instanceToken: "tokenabcdef",
+        redisKey: "custom:pool",
+      }),
+    });
+    const body = (await res.json()) as OkResp;
+    expect(body.data.redisKey).toBe("custom:pool");
+  });
+});
+
+async function createOne(ctx: TestCtx, override: Partial<Record<string, unknown>> = {}) {
+  const res = await makeRequest(ctx.app, "/providers/instances", {
+    method: "POST",
+    body: JSON.stringify({
+      displayName: "inst-01",
+      zapiInstanceId: "i1",
+      instanceToken: "supersecret1234",
+      ...override,
+    }),
+  });
+  return ((await res.json()) as OkResp).data.id;
+}
+
+describe("PATCH /providers/instances/:id", () => {
+  it("200 atualiza displayName e dispara refresh", async () => {
+    const id = await createOne(ctx);
+
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "inst-01-renamed" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as OkResp;
+    expect(body.data.displayName).toBe("inst-01-renamed");
+    expect(body.warning).toContain("restart");
+    expect(ctx.repo.connectionEvents.length).toBe(2); // bootstrap + manual
+    expect(ctx.repo.connectionEvents[1]?.event.source).toBe("manual");
+  });
+
+  it("502 + rollback quando refresh falha ao editar customClientToken", async () => {
+    const id = await createOne(ctx);
+    const beforeToken = ctx.repo.zapi.get(id)?.customClientToken ?? null;
+
+    ctx.setSnapshot(new Error("bad token"));
+
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ customClientToken: "novo-token-quebrado" }),
+    });
+    expect(res.status).toBe(502);
+    const afterToken = ctx.repo.zapi.get(id)?.customClientToken ?? null;
+    expect(afterToken).toBe(beforeToken);
+  });
+
+  it("falha no refresh do PATCH não ejeta do pool nem desabilita a instância", async () => {
+    const id = await createOne(ctx);
+
+    ctx.setSnapshot(new Error("bad token"));
+
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ customClientToken: "novo-token-quebrado" }),
+    });
+    expect(res.status).toBe(502);
+
+    const after = await makeRequest(ctx.app, `/providers/instances/${id}`);
+    const afterBody = (await after.json()) as OkResp;
+    expect(afterBody.data.isEnabled).toBe(true);
+    expect(afterBody.data.zapi?.currentConnectionState).toBe("connected");
+    expect(ctx.redis.zremCalls.length).toBe(0);
+  });
+
+  it("ignora zapiInstanceId no body (imutável — campo não existe no schema)", async () => {
+    const id = await createOne(ctx);
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ zapiInstanceId: "outro-id", displayName: "renomeado" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as OkResp;
+    expect(body.data.displayName).toBe("renomeado");
+    expect(body.data.zapi?.zapiInstanceId).toBe("i1");
+  });
+
+  it("404 quando id não existe", async () => {
+    const res = await makeRequest(ctx.app, `/providers/instances/${randomUUID()}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "novo" }),
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /providers/instances/:id/refresh", () => {
+  it("200 com status atualizado em sucesso", async () => {
+    const id = await createOne(ctx);
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}/refresh`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as OkResp;
+    expect(body.data.zapi?.currentConnected).toBe(true);
+    expect(ctx.repo.connectionEvents.length).toBe(2);
+    expect(ctx.repo.connectionEvents[1]?.event.source).toBe("manual");
+    expect(ctx.repo.deviceSnapshots[1]?.snapshot.source).toBe("manual");
+  });
+
+  it("502 + ejeta do pool + isEnabled=false quando refresh falha", async () => {
+    const id = await createOne(ctx);
+
+    ctx.setSnapshot(new Error("instance disconnected"));
+
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}/refresh`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as ErrorResp;
+    expect(body.error).toContain("unreachable");
+
+    const after = await makeRequest(ctx.app, `/providers/instances/${id}`);
+    const afterBody = (await after.json()) as OkResp;
+    expect(afterBody.data.isEnabled).toBe(false);
+    expect(afterBody.data.zapi?.currentConnectionState).toBe("unreachable");
+
+    expect(ctx.redis.zremCalls.length).toBe(1);
+    expect(ctx.redis.zremCalls[0]?.key).toBe("qp:whatsapp");
+    expect(ctx.redis.zremCalls[0]?.member).toBe(id);
+  });
+
+  it("404 quando id não existe", async () => {
+    const res = await makeRequest(ctx.app, `/providers/instances/${randomUUID()}/refresh`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("GET /providers/instances/:id", () => {
   it("200 retorna instância existente com token mascarado", async () => {
-    const created = await makeRequest(app, "/providers/instances", {
-      method: "POST",
-      body: JSON.stringify({
-        displayName: "inst-01",
-        zapiInstanceId: "i1",
-        instanceToken: "supersecret1234",
-        redisKey: "messaging:whatsapp",
-      }),
-    });
-    const createdBody = (await created.json()) as OkResp;
-    const id = createdBody.data.id;
+    const id = await createOne(ctx);
 
-    const res = await makeRequest(app, `/providers/instances/${id}`);
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as OkResp;
     expect(body.data.id).toBe(id);
@@ -332,25 +652,24 @@ describe("GET /providers/instances/:id", () => {
   });
 
   it("422 se id não é uuid", async () => {
-    const res = await makeRequest(app, "/providers/instances/not-a-uuid");
+    const res = await makeRequest(ctx.app, "/providers/instances/not-a-uuid");
     expect(res.status).toBe(422);
   });
 
   it("404 se id não existe", async () => {
-    const res = await makeRequest(app, `/providers/instances/${randomUUID()}`);
+    const res = await makeRequest(ctx.app, `/providers/instances/${randomUUID()}`);
     expect(res.status).toBe(404);
   });
 });
 
 describe("GET /providers/instances", () => {
   async function create(displayName: string, zapiInstanceId: string) {
-    return makeRequest(app, "/providers/instances", {
+    return makeRequest(ctx.app, "/providers/instances", {
       method: "POST",
       body: JSON.stringify({
         displayName,
         zapiInstanceId,
         instanceToken: "tokenabcdef",
-        redisKey: "messaging:whatsapp",
       }),
     });
   }
@@ -359,7 +678,7 @@ describe("GET /providers/instances", () => {
     await create("a", "i1");
     await create("b", "i2");
 
-    const res = await makeRequest(app, "/providers/instances");
+    const res = await makeRequest(ctx.app, "/providers/instances");
     expect(res.status).toBe(200);
     const body = (await res.json()) as ListResp;
     expect(body.data.length).toBe(2);
@@ -372,9 +691,9 @@ describe("GET /providers/instances", () => {
     const r1 = await create("a", "i1");
     const id = ((await r1.json()) as OkResp).data.id;
     await create("b", "i2");
-    await makeRequest(app, `/providers/instances/${id}/disable`, { method: "PATCH" });
+    await makeRequest(ctx.app, `/providers/instances/${id}/disable`, { method: "PATCH" });
 
-    const res = await makeRequest(app, "/providers/instances?isEnabled=false");
+    const res = await makeRequest(ctx.app, "/providers/instances?isEnabled=false");
     const body = (await res.json()) as ListResp;
     expect(body.data.length).toBe(1);
     expect(body.data[0]?.id).toBe(id);
@@ -385,7 +704,7 @@ describe("GET /providers/instances", () => {
     await create("b", "i2");
     await create("c", "i3");
 
-    const res = await makeRequest(app, "/providers/instances?limit=1&offset=1");
+    const res = await makeRequest(ctx.app, "/providers/instances?limit=1&offset=1");
     const body = (await res.json()) as ListResp;
     expect(body.data.length).toBe(1);
     expect(body.pagination.total).toBe(3);
@@ -393,25 +712,12 @@ describe("GET /providers/instances", () => {
 });
 
 describe("PATCH /providers/instances/:id/disable e /enable", () => {
-  async function createAndGetId() {
-    const res = await makeRequest(app, "/providers/instances", {
-      method: "POST",
-      body: JSON.stringify({
-        displayName: "inst",
-        zapiInstanceId: "i1",
-        instanceToken: "tokenabcdef",
-        redisKey: "messaging:whatsapp",
-      }),
-    });
-    return ((await res.json()) as OkResp).data.id;
-  }
-
   it("disable vira isEnabled=false e altera updatedAt", async () => {
-    const id = await createAndGetId();
-    const before = await makeRequest(app, `/providers/instances/${id}`);
+    const id = await createOne(ctx);
+    const before = await makeRequest(ctx.app, `/providers/instances/${id}`);
     const beforeBody = (await before.json()) as OkResp;
 
-    const res = await makeRequest(app, `/providers/instances/${id}/disable`, {
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}/disable`, {
       method: "PATCH",
     });
     expect(res.status).toBe(200);
@@ -422,13 +728,13 @@ describe("PATCH /providers/instances/:id/disable e /enable", () => {
   });
 
   it("disable é idempotente (segunda chamada não altera updatedAt)", async () => {
-    const id = await createAndGetId();
-    const first = await makeRequest(app, `/providers/instances/${id}/disable`, {
+    const id = await createOne(ctx);
+    const first = await makeRequest(ctx.app, `/providers/instances/${id}/disable`, {
       method: "PATCH",
     });
     const firstBody = (await first.json()) as OkResp;
 
-    const second = await makeRequest(app, `/providers/instances/${id}/disable`, {
+    const second = await makeRequest(ctx.app, `/providers/instances/${id}/disable`, {
       method: "PATCH",
     });
     expect(second.status).toBe(200);
@@ -438,9 +744,9 @@ describe("PATCH /providers/instances/:id/disable e /enable", () => {
   });
 
   it("enable flipa de volta para isEnabled=true", async () => {
-    const id = await createAndGetId();
-    await makeRequest(app, `/providers/instances/${id}/disable`, { method: "PATCH" });
-    const res = await makeRequest(app, `/providers/instances/${id}/enable`, {
+    const id = await createOne(ctx);
+    await makeRequest(ctx.app, `/providers/instances/${id}/disable`, { method: "PATCH" });
+    const res = await makeRequest(ctx.app, `/providers/instances/${id}/enable`, {
       method: "PATCH",
     });
     const body = (await res.json()) as OkResp;
@@ -448,7 +754,7 @@ describe("PATCH /providers/instances/:id/disable e /enable", () => {
   });
 
   it("404 para id inexistente", async () => {
-    const res = await makeRequest(app, `/providers/instances/${randomUUID()}/disable`, {
+    const res = await makeRequest(ctx.app, `/providers/instances/${randomUUID()}/disable`, {
       method: "PATCH",
     });
     expect(res.status).toBe(404);

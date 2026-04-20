@@ -13,18 +13,12 @@ import type { ZApiProviderRegistryRow } from "../services/provider-registry/sche
 
 function mapExecutionStrategy(instance: {
   executionStrategy: "leased" | "passthrough";
-  safetyTtlMs: number | null;
-  heartbeatIntervalMs: number | null;
 }): MessagingProviderExecution {
   if (instance.executionStrategy === "passthrough") {
     return { kind: "passthrough" };
   }
 
-  return {
-    kind: "leased",
-    safetyTtlMs: instance.safetyTtlMs ?? undefined,
-    heartbeatIntervalMs: instance.heartbeatIntervalMs ?? undefined,
-  };
+  return { kind: "leased" };
 }
 
 function rowToZApiConfig(row: ZApiProviderRegistryRow): ZApiInstanceConfig {
@@ -32,7 +26,7 @@ function rowToZApiConfig(row: ZApiProviderRegistryRow): ZApiInstanceConfig {
     providerInstanceId: row.providerId,
     instance_id: row.instanceId,
     instance_token: row.instanceToken,
-    client_token: env.ZAPI_CLIENT_TOKEN,
+    client_token: row.customClientToken ?? env.ZAPI_CLIENT_TOKEN,
     execution: mapExecutionStrategy(row),
   };
 }
@@ -70,6 +64,8 @@ export async function buildWhatsappGatewayRegistry(
       providers,
       delayMinMs: env.ZAPI_DELAY_MIN_MS,
       delayMaxMs: env.ZAPI_DELAY_MAX_MS,
+      safetyTtlMs: env.ZAPI_SAFETY_TTL_MS,
+      heartbeatIntervalMs: env.ZAPI_HEARTBEAT_INTERVAL_MS,
       redisKey,
     });
 

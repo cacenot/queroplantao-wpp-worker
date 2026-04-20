@@ -4,6 +4,7 @@ import {
   ConflictError,
   type MessagingProviderInstanceService,
   RESTART_WARNING,
+  ZApiRefreshError,
 } from "../../../services/messaging-provider-instance/index.ts";
 import { authPlugin } from "../../shared/auth.ts";
 import { errorResponseSchema } from "../../shared/error-envelope.ts";
@@ -27,7 +28,10 @@ export function providerInstancesModule(deps: ProviderInstancesModuleDeps) {
       "/",
       async ({ body, set }) => {
         try {
-          const view = await instanceService.createZApiInstance(body);
+          const view = await instanceService.createZApiInstance({
+            ...body,
+            redisKey: body.redisKey ?? "qp:whatsapp",
+          });
           logger.info(
             { providerInstanceId: view.id, zapiInstanceId: view.zapi?.zapiInstanceId },
             "Provider instance criada via HTTP"
@@ -39,6 +43,10 @@ export function providerInstancesModule(deps: ProviderInstancesModuleDeps) {
             set.status = 409;
             return { error: err.message };
           }
+          if (err instanceof ZApiRefreshError) {
+            set.status = 502;
+            return { error: `Falha ao sincronizar com a Z-API: ${err.message}` };
+          }
           throw err;
         }
       },
@@ -49,6 +57,7 @@ export function providerInstancesModule(deps: ProviderInstancesModuleDeps) {
           400: errorResponseSchema,
           401: errorResponseSchema,
           409: errorResponseSchema,
+          502: errorResponseSchema,
         },
         detail: { summary: "Cria uma instância Z-API no provider registry" },
       }
@@ -95,6 +104,74 @@ export function providerInstancesModule(deps: ProviderInstancesModuleDeps) {
           404: errorResponseSchema,
         },
         detail: { summary: "Retorna uma provider instance pelo id" },
+      }
+    )
+    .patch(
+      "/:id",
+      async ({ params, body, set }) => {
+        try {
+          const view = await instanceService.updateZApiInstance(params.id, body);
+          if (!view) {
+            set.status = 404;
+            return { error: "Instance not found" };
+          }
+          logger.info({ providerInstanceId: view.id }, "Provider instance atualizada via HTTP");
+          return { data: view, warning: RESTART_WARNING };
+        } catch (err) {
+          if (err instanceof ZApiRefreshError) {
+            set.status = 502;
+            return { error: `Falha ao sincronizar com a Z-API: ${err.message}` };
+          }
+          throw err;
+        }
+      },
+      {
+        params: "providerInstances.id.params",
+        body: "providerInstances.update.body",
+        response: {
+          200: "providerInstances.update.response",
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          502: errorResponseSchema,
+        },
+        detail: {
+          summary: "Atualiza campos da instância (dispara refresh; rollback em falha)",
+        },
+      }
+    )
+    .post(
+      "/:id/refresh",
+      async ({ params, set }) => {
+        try {
+          const view = await instanceService.refreshZApiInstance(params.id);
+          if (!view) {
+            set.status = 404;
+            return { error: "Instance not found" };
+          }
+          logger.info({ providerInstanceId: view.id }, "Provider instance refreshada via HTTP");
+          return { data: view };
+        } catch (err) {
+          if (err instanceof ZApiRefreshError) {
+            set.status = 502;
+            return {
+              error: `Instância marcada como unreachable: ${err.message}`,
+            };
+          }
+          throw err;
+        }
+      },
+      {
+        params: "providerInstances.id.params",
+        response: {
+          200: "providerInstances.refresh.response",
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          502: errorResponseSchema,
+        },
+        detail: {
+          summary: "Sincroniza status com a Z-API (ejeta do pool em falha)",
+        },
       }
     )
     .patch(

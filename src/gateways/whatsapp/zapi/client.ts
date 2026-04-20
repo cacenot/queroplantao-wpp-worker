@@ -1,5 +1,13 @@
 import { env } from "../../../config/env.ts";
 import { toZapiDigits } from "../../../lib/phone.ts";
+import {
+  type ZApiDeviceSnapshot,
+  type ZApiMeSnapshot,
+  type ZApiStatusSnapshot,
+  zapiDeviceSnapshotSchema,
+  zapiMeSnapshotSchema,
+  zapiStatusSnapshotSchema,
+} from "../../../services/provider-registry/schemas.ts";
 import type { MessagingProviderExecution } from "../../types.ts";
 import type {
   DeleteMessagePayload,
@@ -8,6 +16,12 @@ import type {
   WhatsAppProvider,
 } from "../types.ts";
 import type { ZApiInstanceConfig } from "./types.ts";
+
+export interface ZApiRefreshSnapshot {
+  me: ZApiMeSnapshot;
+  device: ZApiDeviceSnapshot;
+  status: ZApiStatusSnapshot;
+}
 
 export class ZApiError extends Error {
   constructor(
@@ -48,6 +62,50 @@ export class ZApiClient implements WhatsAppProvider {
     });
 
     await this.request(`messages?${params.toString()}`, { method: "DELETE" });
+  }
+
+  /**
+   * GET /me — dados da conta WhatsApp associada à instância.
+   * Docs: https://developer.z-api.io/instance/me
+   */
+  async fetchMe(): Promise<ZApiMeSnapshot> {
+    const response = await this.request("me", { method: "GET" });
+    const body = await response.json();
+    return zapiMeSnapshotSchema.parse(body);
+  }
+
+  /**
+   * GET /device — dados do dispositivo conectado.
+   * Docs: https://developer.z-api.io/instance/device
+   */
+  async fetchDevice(): Promise<ZApiDeviceSnapshot> {
+    const response = await this.request("device", { method: "GET" });
+    const body = await response.json();
+    return zapiDeviceSnapshotSchema.parse(body);
+  }
+
+  /**
+   * GET /status — estado de conexão.
+   * Docs: https://developer.z-api.io/instance/status
+   */
+  async fetchStatus(): Promise<ZApiStatusSnapshot> {
+    const response = await this.request("status", { method: "GET" });
+    const body = await response.json();
+    return zapiStatusSnapshotSchema.parse(body);
+  }
+
+  /**
+   * Chama /me, /device e /status em paralelo. Uma falha em qualquer endpoint
+   * propaga o erro — o caller decide rollback (create/patch) ou ejeção
+   * (refresh manual).
+   */
+  async refreshSnapshot(): Promise<ZApiRefreshSnapshot> {
+    const [me, device, status] = await Promise.all([
+      this.fetchMe(),
+      this.fetchDevice(),
+      this.fetchStatus(),
+    ]);
+    return { me, device, status };
   }
 
   /**

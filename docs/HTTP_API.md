@@ -177,11 +177,13 @@ Resposta esperada:
 
 Todos os endpoints abaixo exigem o header `x-api-key` (mesma chave de `/tasks`, valor em `HTTP_API_KEY`).
 
-**Importante:** alterações via API efetivam apenas no próximo restart do worker. O `ProviderGateway` lê o registry apenas no bootstrap. As respostas de `create`, `enable` e `disable` retornam um campo `warning` explicando isso.
+**Importante:** alterações via API efetivam apenas no próximo restart do worker. O `ProviderGateway` lê o registry apenas no bootstrap. As respostas de `create`, `update`, `enable` e `disable` retornam um campo `warning` explicando isso.
+
+Ao **criar** ou **atualizar** uma instância, o service chama sincronamente `/me`, `/device` e `/status` da Z-API para validar as credenciais. O refresh acontece **fora** da transação (não segura conexão PG durante HTTP); os writes (status + evento + snapshot) rodam numa txn curta depois. Se a Z-API não responder, nada é persistido no create / patch é revertido — e o HTTP retorna `502`.
 
 ### `POST /providers/instances`
 
-Cria uma instância Z-API no registry. Executa as inserções em `messaging_provider_instances` e `zapi_instances` dentro de uma única transação.
+Cria uma instância Z-API no registry. Fluxo: valida unicidade → chama Z-API (fora da txn) → numa txn curta insere em `messaging_provider_instances` + `zapi_instances` + 1 row em `zapi_instance_connection_events` + 1 em `zapi_instance_device_snapshots` (source=`bootstrap`). Falha no refresh → nada persistido, `502`.
 
 Request body:
 
@@ -190,17 +192,15 @@ Request body:
   "displayName": "inst-01",
   "zapiInstanceId": "3D1A...",
   "instanceToken": "token-secreto-da-instancia",
-  "webhookBaseUrl": "https://wpp-api.qp.internal",
+  "customClientToken": "opcional-override-do-env-ZAPI_CLIENT_TOKEN",
   "executionStrategy": "leased",
-  "redisKey": "messaging:whatsapp",
-  "safetyTtlMs": 120000,
-  "heartbeatIntervalMs": 30000
+  "redisKey": "qp:whatsapp"
 }
 ```
 
-Campos obrigatórios: `displayName`, `zapiInstanceId`, `instanceToken`, `redisKey`. Demais são opcionais.
+Campos obrigatórios: `displayName`, `zapiInstanceId`, `instanceToken`. `redisKey` é opcional (default `"qp:whatsapp"`). `customClientToken` é opcional — quando ausente, o worker usa `env.ZAPI_CLIENT_TOKEN`.
 
-O cooldown entre jobs (delay min/max) é global do pool e vem das envs `ZAPI_DELAY_MIN_MS` / `ZAPI_DELAY_MAX_MS` — não há override por instância.
+O cooldown entre jobs (`ZAPI_DELAY_MIN_MS` / `ZAPI_DELAY_MAX_MS`) e os parâmetros de lease (`ZAPI_SAFETY_TTL_MS` / `ZAPI_HEARTBEAT_INTERVAL_MS`) são globais e vêm do env — não há override por instância.
 
 Response `201 Created`:
 
@@ -213,20 +213,18 @@ Response `201 Created`:
     "displayName": "inst-01",
     "isEnabled": true,
     "executionStrategy": "leased",
-    "redisKey": "messaging:whatsapp",
-    "safetyTtlMs": 120000,
-    "heartbeatIntervalMs": 30000,
+    "redisKey": "qp:whatsapp",
     "createdAt": "2026-04-16T12:00:00.000Z",
     "updatedAt": "2026-04-16T12:00:00.000Z",
     "archivedAt": null,
     "zapi": {
       "zapiInstanceId": "3D1A...",
       "instanceTokenMasked": "toke...ncia",
-      "webhookBaseUrl": "https://wpp-api.qp.internal",
-      "currentConnectionState": null,
-      "currentConnected": null,
-      "currentPhoneNumber": null,
-      "lastStatusSyncedAt": null
+      "customClientTokenMasked": null,
+      "currentConnectionState": "connected",
+      "currentConnected": true,
+      "currentPhoneNumber": "5547999998888",
+      "lastStatusSyncedAt": "2026-04-16T12:00:00.000Z"
     }
   },
   "warning": "A instância só será utilizada pelo worker após o próximo restart."
@@ -238,8 +236,46 @@ Erros:
 - `401 Unauthorized` — chave ausente/errada
 - `409 Conflict` — `zapiInstanceId` já cadastrado
 - `422 Unprocessable Entity` — body inválido (shape conferido pelo TypeBox)
+- `502 Bad Gateway` — Z-API não respondeu ao refresh; nada foi persistido
 
-O `instanceToken` em claro **nunca** aparece na resposta. `instanceTokenMasked` mostra os 4 primeiros + `...` + 4 últimos caracteres; `****` para tokens curtos.
+`instanceToken` e `customClientToken` em claro **nunca** aparecem na resposta. Os campos `*Masked` mostram os 4 primeiros + `...` + 4 últimos caracteres; `****` para tokens curtos.
+
+### `PATCH /providers/instances/:id`
+
+Atualiza campos editáveis. `zapiInstanceId` é **imutável** e não está presente no schema do body — para trocar de instância Z-API, crie um novo registro.
+
+Request body (todos os campos opcionais):
+
+```json
+{
+  "displayName": "inst-01-renomeada",
+  "executionStrategy": "leased",
+  "redisKey": "qp:whatsapp",
+  "instanceToken": "novo-token-rotacionado",
+  "customClientToken": "novo-client-token-ou-null-para-voltar-ao-env"
+}
+```
+
+`customClientToken: null` limpa o override e volta a usar `env.ZAPI_CLIENT_TOKEN`.
+
+Fluxo análogo ao `POST`: refresh com credenciais efetivas (patch aplicado) fora da txn → txn curta aplicando patch + status + evento/snapshot (`source=manual`).
+
+Assimetria proposital vs `POST /refresh`: aqui, falha no refresh geralmente indica que o usuário passou credencial inválida. Nesse caso **a instância não é ejetada do pool** — o patch é revertido e o estado anterior (que provavelmente funcionava) permanece. Se a instância de fato caiu, o webhook `disconnect` da Z-API avisa o worker, ou o operador pode chamar `POST /:id/refresh` explicitamente para forçar a ejeção.
+
+Response `200 OK`: `{ "data": InstanceView, "warning": "..." }`. Erros: `401`, `404`, `502`.
+
+### `POST /providers/instances/:id/refresh`
+
+Sincroniza o status da instância com a Z-API sem alterar credenciais ou configurações. Grava 1 row em `connection_events` + 1 em `device_snapshots` com `source=manual`.
+
+Em **falha** (timeout, erro de rede ou resposta inválida), o service:
+
+1. Marca `currentConnectionState='unreachable'`, `currentStatusReason=<erro>`, `currentConnected=false`;
+2. Desabilita a instância (`isEnabled=false`);
+3. Remove a entrada do Sorted Set do pool (`ZREM redisKey providerInstanceId`) — tira da rotação do gateway imediatamente;
+4. Retorna `502` com `{ "error": "Instância marcada como unreachable: ..." }`.
+
+Isso evita que a instância quebrada continue sendo tentada no worker em execução.
 
 ### `GET /providers/instances/:id`
 

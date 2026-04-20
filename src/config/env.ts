@@ -23,6 +23,12 @@ const envSchema = z.object({
   ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(2500),
   ZAPI_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(5200),
 
+  // TTL (ms) da lease distribuída por provider — protege contra crashes do worker
+  ZAPI_SAFETY_TTL_MS: z.coerce.number().int().positive().default(30_000),
+
+  // Intervalo (ms) de renovação da lease durante execução — deve ser < ZAPI_SAFETY_TTL_MS
+  ZAPI_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
+
   // Redis — usado para coordenar rate limiting distribuído entre workers
   REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),
 

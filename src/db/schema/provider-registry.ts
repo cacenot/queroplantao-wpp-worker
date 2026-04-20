@@ -32,6 +32,7 @@ export const zapiConnectionStateEnum = pgEnum("zapi_connection_state", [
   "disconnected",
   "pending",
   "errored",
+  "unreachable",
 ]);
 
 export const zapiConnectionEventSourceEnum = pgEnum("zapi_connection_event_source", [
@@ -58,8 +59,6 @@ export const messagingProviderInstances = pgTable(
     isEnabled: boolean("is_enabled").notNull().default(true),
     executionStrategy: executionStrategyEnum("execution_strategy").notNull().default("leased"),
     redisKey: text("redis_key").notNull(),
-    safetyTtlMs: integer("safety_ttl_ms"),
-    heartbeatIntervalMs: integer("heartbeat_interval_ms"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -81,7 +80,7 @@ export const zapiInstances = pgTable(
       .references(() => messagingProviderInstances.id, { onDelete: "cascade" }),
     zapiInstanceId: text("zapi_instance_id").notNull(),
     instanceToken: text("instance_token").notNull(),
-    webhookBaseUrl: text("webhook_base_url"),
+    customClientToken: text("custom_client_token"),
     currentConnectionState: zapiConnectionStateEnum("current_connection_state"),
     currentStatusReason: text("current_status_reason"),
     currentConnected: boolean("current_connected"),

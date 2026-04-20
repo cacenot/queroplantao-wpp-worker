@@ -141,35 +141,19 @@ function validateCooldownRange(delayMinMs: number, delayMaxMs: number, context: 
 
 function resolveProviderExecution(
   execution: MessagingProviderExecution | undefined,
-  defaults: LeaseDefaults,
-  providerId: string
+  defaults: LeaseDefaults
 ): ResolvedProviderExecution {
   if (execution?.kind === "passthrough") {
     return { kind: "passthrough" };
-  }
-
-  const safetyTtlMs = execution?.safetyTtlMs ?? defaults.safetyTtlMs;
-  const heartbeatIntervalMs =
-    execution?.heartbeatIntervalMs ??
-    defaults.heartbeatIntervalMs ??
-    deriveHeartbeatInterval(safetyTtlMs);
-
-  if (safetyTtlMs <= 0) {
-    throw new Error(`Provider ${providerId}: safetyTtlMs deve ser > 0`);
-  }
-
-  if (heartbeatIntervalMs <= 0 || heartbeatIntervalMs >= safetyTtlMs) {
-    throw new Error(
-      `Provider ${providerId}: heartbeatIntervalMs deve ser > 0 e menor que safetyTtlMs`
-    );
   }
 
   return {
     kind: "leased",
     delayMinMs: defaults.delayMinMs,
     delayMaxMs: defaults.delayMaxMs,
-    safetyTtlMs,
-    heartbeatIntervalMs,
+    safetyTtlMs: defaults.safetyTtlMs,
+    heartbeatIntervalMs:
+      defaults.heartbeatIntervalMs ?? deriveHeartbeatInterval(defaults.safetyTtlMs),
   };
 }
 
@@ -254,7 +238,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
 
       return {
         provider,
-        execution: resolveProviderExecution(provider.execution, defaults, providerId),
+        execution: resolveProviderExecution(provider.execution, defaults),
         ownerKey: `${redisKey}:lease:${providerId}`,
       } satisfies ProviderEntry<T>;
     });

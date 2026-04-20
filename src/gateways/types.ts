@@ -4,8 +4,6 @@ export interface MessagingInstance {
 
 export interface MessagingLeasedExecution {
   kind: "leased";
-  safetyTtlMs?: number;
-  heartbeatIntervalMs?: number;
 }
 
 export interface MessagingPassthroughExecution {

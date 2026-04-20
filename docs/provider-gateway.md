@@ -83,16 +83,23 @@ Isso abre caminho para multi-tenant sem mudar as actions: instâncias isoladas n
 
 ## Relação com o provider registry
 
-O provider registry persiste a estratégia e os defaults operacionais do provider:
+O provider registry persiste por instância:
 
 - `execution_strategy`
-- `safety_ttl_ms`
-- `heartbeat_interval_ms`
 - `redis_key` (NOT NULL — determina o pool)
+- `custom_client_token` em `zapi_instances` (opcional — override do `env.ZAPI_CLIENT_TOKEN` por instância)
 
-O cooldown entre jobs (delay min/max) é global do pool e vem das envs `ZAPI_DELAY_MIN_MS` / `ZAPI_DELAY_MAX_MS`. Não existe override por instância.
+Os parâmetros operacionais do gateway são **envs globais**, sem override por instância:
+
+- `ZAPI_DELAY_MIN_MS` / `ZAPI_DELAY_MAX_MS` — cooldown entre jobs
+- `ZAPI_SAFETY_TTL_MS` — TTL da lease distribuída
+- `ZAPI_HEARTBEAT_INTERVAL_MS` — intervalo de renovação da lease (< safety TTL)
 
 O worker materializa esses campos no bootstrap e os injeta nos providers concretos. A identidade do provider dentro do gateway é o `providerInstanceId` (UUID da linha em `messaging_provider_instances`), não o `instance_id` externo da Z-API.
+
+### Ejeção runtime via refresh manual
+
+`POST /providers/instances/:id/refresh` (ver HTTP_API.md) chama sincronamente `/me`, `/device`, `/status` da Z-API. Em falha, além de marcar `currentConnectionState='unreachable'` e `isEnabled=false` no DB, o service executa `ZREM redisKey providerInstanceId` — o script Lua `ACQUIRE_LEASE_SCRIPT` retorna `nil` quando não há score no Sorted Set, então a instância é automaticamente pulada na rotação até o próximo restart. É o caminho único de ejeção runtime disponível hoje.
 
 ## Mutação via HTTP
 

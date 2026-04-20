@@ -303,13 +303,7 @@ describe("ProviderGateway", () => {
     const redis = new FakeRedis();
     const gateway = new ProviderGateway({
       redis: redis as unknown as Redis,
-      providers: [
-        makeProvider("leased-1", {
-          kind: "leased",
-          safetyTtlMs: 30,
-          heartbeatIntervalMs: 10,
-        }),
-      ],
+      providers: [makeProvider("leased-1", { kind: "leased" })],
       delayMinMs: 0,
       delayMaxMs: 0,
       redisKey: REDIS_KEY,
@@ -361,13 +355,7 @@ describe("ProviderGateway", () => {
     const redis = new FakeRedis();
     const gateway = new ProviderGateway({
       redis: redis as unknown as Redis,
-      providers: [
-        makeProvider("leased-1", {
-          kind: "leased",
-          safetyTtlMs: 1_000,
-          heartbeatIntervalMs: 200,
-        }),
-      ],
+      providers: [makeProvider("leased-1", { kind: "leased" })],
       delayMinMs: 0,
       delayMaxMs: 0,
       redisKey: REDIS_KEY,

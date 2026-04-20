@@ -7,6 +7,7 @@ import { MessagingProviderInstanceRepository } from "../db/repositories/messagin
 import { ModerationConfigRepository } from "../db/repositories/moderation-config-repository.ts";
 import { PhonePoliciesRepository } from "../db/repositories/phone-policies-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
+import { ZApiClient } from "../gateways/whatsapp/zapi/client.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
@@ -46,7 +47,17 @@ export async function buildDeps() {
     queueName: env.AMQP_QUEUE,
   });
 
-  const instanceService = new MessagingProviderInstanceService(instanceRepo);
+  const instanceService = new MessagingProviderInstanceService({
+    repo: instanceRepo,
+    redis,
+    clientFactory: (credentials) =>
+      new ZApiClient({
+        providerInstanceId: credentials.providerInstanceId,
+        instance_id: credentials.zapiInstanceId,
+        instance_token: credentials.instanceToken,
+        client_token: credentials.customClientToken ?? env.ZAPI_CLIENT_TOKEN,
+      }),
+  });
 
   const messagingGroupsCache = new MessagingGroupsCache({
     redis,
