@@ -15,7 +15,6 @@ process.env.QP_ADMIN_API_URL ??= "https://qp-admin.example.com";
 process.env.QP_ADMIN_API_TOKEN ??= "test-admin-token";
 process.env.AMQP_RETRY_DELAY_MS ??= "5000";
 process.env.AMQP_RETRY_MAX_RETRIES ??= "2";
-process.env.MODERATION_VERSION ??= "v1";
 process.env.ZAPI_RECEIVED_WEBHOOK_SECRET ??= "test-webhook-secret";
 
 const { declareRetryTopology } = await import("./retry-topology.ts");

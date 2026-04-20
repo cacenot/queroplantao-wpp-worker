@@ -280,8 +280,7 @@ Todos os jobs seguem o formato:
 | `QP_ADMIN_API_URL` | string (URL) | — | Worker |
 | `QP_ADMIN_API_TOKEN` | string | — | Worker |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | string | — | Worker (só o do provider ativo) |
-| `AI_MODEL_ANALYZE_MESSAGE` | string | `openai/gpt-4o-mini` | Worker |
-| `MODERATION_VERSION` | string | obrigatória | API + Worker |
+| `MODERATION_CONFIG_REDIS_PREFIX` | string | `moderation_config` | API + Worker |
 | `INGESTION_DEDUPE_WINDOW_MS` | number (ms) | `60000` | API |
 | `MODERATION_REUSE_WINDOW_MS` | number (ms) | `1296000000` (15d) | API |
 | `ZAPI_RECEIVED_WEBHOOK_SECRET` | string | obrigatória | API |

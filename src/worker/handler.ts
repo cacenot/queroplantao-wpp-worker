@@ -3,9 +3,11 @@ import type { AsyncMessage, Publisher } from "rabbitmq-client";
 import { ConsumerStatus } from "rabbitmq-client";
 import { z } from "zod";
 import { deleteMessage } from "../actions/whatsapp/delete-message.ts";
-import { moderateGroupMessage } from "../actions/whatsapp/moderate-group-message.ts";
+import {
+  type ModerateFn,
+  moderateGroupMessage,
+} from "../actions/whatsapp/moderate-group-message.ts";
 import { removeParticipant } from "../actions/whatsapp/remove-participant.ts";
-import type { MessageAnalysis } from "../ai/moderator.ts";
 import type { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
 import type { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
 import type { GatewayRegistry } from "../gateways/gateway-registry.ts";
@@ -17,12 +19,11 @@ import type { RetryTopology } from "../lib/retry-topology.ts";
 import { Sentry } from "../lib/sentry.ts";
 import type { TaskService } from "../services/task/index.ts";
 
-type ClassifyFn = (text: string) => Promise<MessageAnalysis>;
 type JobLogger = Logger;
 
 interface JobHandlerOptions {
   whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
-  classifyMessage: ClassifyFn;
+  moderate: ModerateFn;
   taskService: TaskService;
   moderationsRepo: MessageModerationsRepository;
   groupMessagesRepo: GroupMessagesRepository;
@@ -33,7 +34,7 @@ interface JobHandlerOptions {
 
 interface ExecuteDeps {
   whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
-  classifyMessage: ClassifyFn;
+  moderate: ModerateFn;
   moderationsRepo: MessageModerationsRepository;
   groupMessagesRepo: GroupMessagesRepository;
 }
@@ -92,7 +93,7 @@ async function executeJob(job: JobSchema, deps: ExecuteDeps): Promise<void> {
       return moderateGroupMessage(job.payload, {
         moderationsRepo: deps.moderationsRepo,
         groupMessagesRepo: deps.groupMessagesRepo,
-        classify: deps.classifyMessage,
+        moderate: deps.moderate,
       });
   }
 }
@@ -130,7 +131,7 @@ async function publishOrRequeue(
 export function createJobHandler(options: JobHandlerOptions) {
   const {
     whatsappGatewayRegistry,
-    classifyMessage,
+    moderate,
     taskService,
     moderationsRepo,
     groupMessagesRepo,
@@ -141,7 +142,7 @@ export function createJobHandler(options: JobHandlerOptions) {
 
   const executeDeps: ExecuteDeps = {
     whatsappGatewayRegistry,
-    classifyMessage,
+    moderate,
     moderationsRepo,
     groupMessagesRepo,
   };

@@ -4,12 +4,17 @@ import { GroupMessagesRepository } from "../db/repositories/group-messages-repos
 import { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
 import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
 import { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
+import { ModerationConfigRepository } from "../db/repositories/moderation-config-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
 import { MessagingGroupsCache } from "../services/messaging-groups/messaging-groups-cache.ts";
 import { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
+import {
+  ModerationConfigCache,
+  ModerationConfigService,
+} from "../services/moderation-config/index.ts";
 import { TaskService } from "../services/task/index.ts";
 
 export async function buildDeps() {
@@ -27,6 +32,7 @@ export async function buildDeps() {
   const messagingGroupsRepo = new MessagingGroupsRepository(db);
   const groupMessagesRepo = new GroupMessagesRepository(db);
   const moderationsRepo = new MessageModerationsRepository(db);
+  const moderationConfigRepo = new ModerationConfigRepository(db);
 
   // --- Serviços de domínio ---
   const taskService = new TaskService({
@@ -43,16 +49,25 @@ export async function buildDeps() {
     prefix: env.MESSAGING_GROUPS_REDIS_PREFIX,
   });
 
+  const moderationConfigCache = new ModerationConfigCache({
+    redis,
+    repo: moderationConfigRepo,
+    prefix: env.MODERATION_CONFIG_REDIS_PREFIX,
+  });
+  const moderationConfigService = new ModerationConfigService({
+    repo: moderationConfigRepo,
+    cache: moderationConfigCache,
+  });
+
   const groupMessagesService = new GroupMessagesService({
     groupMessagesRepo,
     moderationsRepo,
     messagingGroupsRepo,
     messagingGroupsCache,
     taskService,
-    moderationVersion: env.MODERATION_VERSION,
+    moderationConfigService,
     ingestionDedupeWindowMs: env.INGESTION_DEDUPE_WINDOW_MS,
     moderationReuseWindowMs: env.MODERATION_REUSE_WINDOW_MS,
-    moderationModelId: env.AI_MODEL_ANALYZE_MESSAGE,
   });
 
   return {
@@ -62,6 +77,7 @@ export async function buildDeps() {
     publisher,
     taskService,
     instanceService,
+    moderationConfigService,
     groupMessagesService,
   };
 }

@@ -19,9 +19,11 @@ GroupMessagesService.ingestZapi()
      │  ② compute ingestionDedupeHash + contentHash
      │  ③ upsertByIngestionHash → isNew?
      │       duplicata → retorna "duplicate", fim
-     │  ④ findReusable(contentHash, version, 15d)
+     │  ④ carrega config ativa via ModerationConfigService (Redis → DB)
+     │  ⑤ findReusable(contentHash, config.version, 15d)
      │       hit → cria row "cached", atualiza group_messages → "reused"
-     │       miss → cria row "fresh/pending", enfileira job → "queued"
+     │       miss → cria row "fresh/pending" (version=config.version, model=config.primaryModel),
+     │              enfileira job → "queued"
      ▼
 AMQP: whatsapp.moderate_group_message { moderationId }
      │
@@ -29,8 +31,8 @@ AMQP: whatsapp.moderate_group_message { moderationId }
 moderateGroupMessage()
      │  carrega message_moderations + group_messages por moderationId
      │  verifica status='pending' (guard de idempotência)
-     │  chama classifyMessage(normalizedText | caption)
-     │  markAnalyzed → atualiza message_moderations
+     │  chama moderate(text) → classifyTiered (1-hop escalation)
+     │  markAnalyzed com modelUsed retornado pelo classifier
      │  setModerationStatus('analyzed') → atualiza group_messages
      │  em erro: markFailed + setModerationStatus('failed')
 ```
@@ -91,7 +93,7 @@ sha256(normalizedText ?? mediaUrl ?? "")
 
 Sem grupo, sem remetente, sem timestamp. Puro conteúdo.
 
-**Janela de reuso**: `MODERATION_REUSE_WINDOW_MS` (default 15 dias). Respeita a evolução das regras (bump de `MODERATION_VERSION` invalida o cache automaticamente porque a versão entra no filtro de lookup).
+**Janela de reuso**: `MODERATION_REUSE_WINDOW_MS` (default 15 dias). Respeita a evolução das regras (ativar uma `moderation_configs` com novo `version` invalida o cache automaticamente porque a versão entra no filtro de lookup).
 
 ---
 
@@ -200,16 +202,65 @@ pending ──────────────► analyzed
 
 - **`source=fresh`**: LLM executou nesta mensagem.
 - **`source=cached`**: conteúdo idêntico já analisado dentro da janela → copia campos, aponta `source_moderation_id` para a original. Não gera job AMQP.
-- Reanálise com nova versão: `MODERATION_VERSION` diferente → miss no reuse lookup → novo INSERT em `message_moderations`, novo job.
+- Reanálise com nova versão: config ativa com `version` diferente → miss no reuse lookup → novo INSERT em `message_moderations`, novo job.
 
 ---
 
-## Versionamento via `MODERATION_VERSION`
+## Versionamento via `moderation_configs.version`
 
-- Env obrigatória. Exemplo: `MODERATION_VERSION=v1`.
-- Bump invalida cache de reuso (versão diferente não casa no lookup `WHERE moderation_version=$2`).
-- Mensagens já analisadas com versão anterior mantêm suas linhas intactas.
+Configuração (prompt, exemplos, modelos, thresholds, versão) vive em Postgres na tabela `moderation_configs`. Partial unique index em `is_active` garante no máximo uma row ativa.
+
+- Ativar nova config: `POST /admin/moderation/config` (cria + ativa em uma transação) ou `POST /admin/moderation/config/:version/activate` (rollback para versão existente).
+- Ativação invalida cache Redis (`DEL moderation_config:active`) no service — próximo read recarrega do DB.
+- Bump de `version` invalida cache de reuso de moderação (versão diferente não casa no lookup `WHERE moderation_version=$2`).
+- Mensagens já analisadas com versão anterior mantêm suas linhas intactas (1 mensagem → N moderações, uma por version).
 - Reanálise em massa de histórico: follow-up (script que cria rows `pending` com versão nova para cada `group_messages`).
+
+---
+
+## Configuração de moderação
+
+### Endpoints
+
+| Método | Path | Descrição |
+|---|---|---|
+| `GET` | `/admin/moderation/config/active` | Retorna a config ativa (404 se nenhuma). |
+| `GET` | `/admin/moderation/config` | Histórico ordenado por `createdAt desc` (default `limit=10`). |
+| `POST` | `/admin/moderation/config` | Cria e ativa uma nova config (desativa a anterior atomicamente). |
+| `POST` | `/admin/moderation/config/:version/activate` | Rollback para uma versão existente. |
+
+Autenticação: header `x-api-key` (`HTTP_API_KEY`).
+
+### Exemplo — criar config ativa
+
+```http
+POST /admin/moderation/config
+Content-Type: application/json
+x-api-key: ***
+
+{
+  "version": "2026-04-19-v1",
+  "primaryModel": "openai/gpt-4o-mini",
+  "escalationModel": "openai/gpt-4o",
+  "escalationThreshold": 0.7,
+  "escalationCategories": ["hate", "self-harm"],
+  "systemPrompt": "Você é um moderador...",
+  "examples": [
+    { "text": "exemplo", "analysis": { "action": "allow", "category": "...", "confidence": 0.95, "reason": "..." } }
+  ]
+}
+```
+
+Se `escalationModel` for omitido/`null`, o pipeline é single-hop (sem escalation). `escalationCategories` aceita qualquer categoria do enum compartilhado em `src/ai/categories.ts` (typechecked no TypeBox da rota e no Zod do moderator).
+
+### Rollback
+
+```http
+POST /admin/moderation/config/v1/activate
+x-api-key: ***
+```
+
+Ativa a row existente com `version=v1` e desativa a anterior na mesma transação.
 
 ---
 
@@ -234,12 +285,13 @@ pending ──────────────► analyzed
 
 | Variável | Default | Descrição |
 |---|---|---|
-| `MODERATION_VERSION` | obrigatória | Versão ativa das regras. Bumpar invalida cache de reuso. |
+| `MODERATION_CONFIG_REDIS_PREFIX` | `moderation_config` | Prefixo do cache Redis da config ativa (key = `${prefix}:active`). |
 | `INGESTION_DEDUPE_WINDOW_MS` | `60000` | Janela do bucket de dedup de ingestão (ms). |
 | `MODERATION_REUSE_WINDOW_MS` | `1296000000` (15d) | Janela de reuso de moderação por contentHash+version (ms). |
 | `ZAPI_RECEIVED_WEBHOOK_SECRET` | obrigatória | Secret validado timing-safe no webhook. |
 | `ZAPI_RECEIVED_WEBHOOK_ENABLED` | `true` | Desabilitar retorna 404 imediatamente. |
-| `AI_MODEL_ANALYZE_MESSAGE` | `openai/gpt-4o-mini` | Modelo LLM usado na análise. |
+
+> **Removidas em favor de `moderation_configs`**: `MODERATION_VERSION`, `AI_MODEL_ANALYZE_MESSAGE`. Ambas agora vivem na row ativa da tabela.
 
 ---
 
@@ -303,7 +355,6 @@ ORDER BY total DESC;
 
 - **Somente texto**: `normalizedText` e `caption`. Sem OCR para imagens, sem Whisper para áudio.
 - **Somente Z-API**: Telegram Bot API e Evolution-Go têm schema preparado mas handler não implementado.
-- **`model` preenchido com env**: `AI_MODEL_ANALYZE_MESSAGE` em vez do model real retornado pelo provider. Follow-up: estender `classifyMessage` para retornar o `modelId` efetivamente usado.
 - **Enforcement pós-moderação**: auto-delete/auto-ban baseado em `action` fica para próximo PR.
 - **Reaper de pendentes órfãos**: mensagens que ficaram `pending` sem job (crash entre INSERT e enqueue) precisam de reaper periódico.
-- **Reanálise em massa**: script para reavaliar histórico ao bumpar `MODERATION_VERSION`.
+- **Reanálise em massa**: script para reavaliar histórico ao ativar nova `moderation_configs.version`.

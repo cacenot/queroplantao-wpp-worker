@@ -8,6 +8,7 @@ import type { NormalizedZapiMessage } from "../../gateways/whatsapp/zapi/message
 import { logger } from "../../lib/logger.ts";
 import { computeContentHash, computeIngestionDedupeHash } from "../../lib/message-hash.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
+import type { ModerationConfigService } from "../moderation-config/index.ts";
 import type { TaskService } from "../task/index.ts";
 import type { IngestContext, IngestOutcome } from "./types.ts";
 
@@ -17,10 +18,9 @@ type GroupMessagesServiceOptions = {
   messagingGroupsRepo: MessagingGroupsRepository;
   messagingGroupsCache: MessagingGroupsCache;
   taskService: TaskService;
-  moderationVersion: string;
+  moderationConfigService: ModerationConfigService;
   ingestionDedupeWindowMs: number;
   moderationReuseWindowMs: number;
-  moderationModelId: string;
 };
 
 export class GroupMessagesService {
@@ -119,14 +119,15 @@ export class GroupMessagesService {
       groupMessagesRepo,
       moderationsRepo,
       taskService,
-      moderationVersion,
+      moderationConfigService,
       moderationReuseWindowMs,
-      moderationModelId,
     } = this.options;
+
+    const config = await moderationConfigService.getActive();
 
     // — 1. Tentar reaproveitar moderação existente com mesmo conteúdo
     const cutoff = new Date(Date.now() - moderationReuseWindowMs);
-    const cached = await moderationsRepo.findReusable(contentHash, moderationVersion, cutoff);
+    const cached = await moderationsRepo.findReusable(contentHash, config.version, cutoff);
 
     if (cached) {
       const reused = await this.createCachedModeration(messageId, contentHash, cached);
@@ -143,8 +144,8 @@ export class GroupMessagesService {
     const fresh = await moderationsRepo.create({
       groupMessageId: messageId,
       contentHash,
-      moderationVersion,
-      model: moderationModelId,
+      moderationVersion: config.version,
+      model: config.primaryModel,
       source: "fresh",
       status: "pending",
     });

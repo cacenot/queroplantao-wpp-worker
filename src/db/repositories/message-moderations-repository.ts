@@ -61,6 +61,7 @@ export class MessageModerationsRepository {
   async markAnalyzed(
     id: string,
     fields: {
+      model: string;
       reason: string | null;
       partner: string | null;
       category: string | null;
@@ -76,6 +77,7 @@ export class MessageModerationsRepository {
       .update(messageModerations)
       .set({
         status: "analyzed",
+        model: fields.model,
         reason: fields.reason,
         partner: fields.partner,
         category: fields.category,

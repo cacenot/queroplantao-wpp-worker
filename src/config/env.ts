@@ -45,12 +45,6 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
 
-  // AI — modelo por action (formato: "provider/model-name")
-  AI_MODEL_ANALYZE_MESSAGE: z.string().min(1).default("openai/gpt-4o-mini"),
-
-  // Moderação — versão ativa do prompt/regras. Bumpar invalida cache de reuso.
-  MODERATION_VERSION: z.string().min(1, { message: "MODERATION_VERSION é obrigatória" }),
-
   // Janela (ms) do bucket de dedupe de ingestão. Colapsa a mesma mensagem em várias instâncias Z-API.
   INGESTION_DEDUPE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
 

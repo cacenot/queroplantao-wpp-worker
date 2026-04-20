@@ -19,6 +19,8 @@ const { NonRetryableError } = await import("../lib/errors.ts");
 const { createJobHandler } = await import("./handler.ts");
 
 import type { AsyncMessage } from "rabbitmq-client";
+import type { ModerateFn } from "../actions/whatsapp/moderate-group-message.ts";
+import type { ClassifyResult } from "../ai/classify-tiered.ts";
 import type { MessageAnalysis } from "../ai/moderator.ts";
 import type { GatewayRegistry } from "../gateways/gateway-registry.ts";
 import type { WhatsAppExecutor, WhatsAppProvider } from "../gateways/whatsapp/types.ts";
@@ -93,14 +95,20 @@ function makeExecutor(impl: () => Promise<void> = () => Promise.resolve()): What
   return { execute: mock(impl) as WhatsAppExecutor["execute"] };
 }
 
-function makeClassify(result?: MessageAnalysis) {
-  const defaultResult = {
+function makeModerate(result?: ClassifyResult) {
+  const defaultAnalysis: MessageAnalysis = {
     reason: "ok",
     partner: null,
     category: "clean",
     confidence: 0.9,
     action: "allow",
-  } as unknown as MessageAnalysis;
+  };
+  const defaultResult: ClassifyResult = {
+    analysis: defaultAnalysis,
+    modelUsed: "openai/gpt-4o-mini",
+    escalated: false,
+    primaryAnalysis: null,
+  };
   return mock(() => Promise.resolve(result ?? defaultResult));
 }
 
@@ -144,7 +152,7 @@ function makeHandler(
   overrides: Partial<{
     whatsappGateway: WhatsAppExecutor;
     whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
-    classifyMessage: ReturnType<typeof makeClassify>;
+    moderate: ReturnType<typeof makeModerate>;
     taskService: ReturnType<typeof makeTaskService>;
     publisher: ReturnType<typeof makePublisher>;
     topology: RetryTopology;
@@ -153,7 +161,7 @@ function makeHandler(
   const whatsappGateway = overrides.whatsappGateway ?? makeExecutor();
   const whatsappGatewayRegistry =
     overrides.whatsappGatewayRegistry ?? makeRegistry(() => whatsappGateway);
-  const classifyMessage = overrides.classifyMessage ?? makeClassify();
+  const moderate = overrides.moderate ?? makeModerate();
   const taskService = overrides.taskService ?? makeTaskService();
   const publisher = overrides.publisher ?? makePublisher();
   const topology = overrides.topology ?? makeTopology();
@@ -163,7 +171,7 @@ function makeHandler(
 
   const handler = createJobHandler({
     whatsappGatewayRegistry,
-    classifyMessage: classifyMessage as unknown as (text: string) => Promise<MessageAnalysis>,
+    moderate: moderate as unknown as ModerateFn,
     // biome-ignore lint/suspicious/noExplicitAny: fake service tipado via makeTaskService
     taskService: taskService as any,
     // biome-ignore lint/suspicious/noExplicitAny: fake repo tipado via makeModerationsRepo

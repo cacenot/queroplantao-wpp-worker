@@ -11,7 +11,6 @@ process.env.ZAPI_RECEIVED_WEBHOOK_SECRET ??= "test-webhook-secret";
 process.env.QP_ADMIN_API_URL ??= "https://qp-admin.example.com";
 process.env.QP_ADMIN_API_TOKEN ??= "test-admin-token";
 process.env.QP_ADMIN_API_SERVICE_TOKEN ??= "test-service-token";
-process.env.MODERATION_VERSION ??= "test-version";
 
 const { createTestDb } = await import("../../test-support/db.ts");
 const { ModerationConfigRepository } = await import("./moderation-config-repository.ts");

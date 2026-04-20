@@ -14,7 +14,6 @@ process.env.REDIS_URL = "redis://localhost:6379";
 process.env.DATABASE_URL = "postgres://ignored";
 process.env.QP_ADMIN_API_URL = "https://admin.example.com";
 process.env.QP_ADMIN_API_TOKEN = "admin-token";
-process.env.MODERATION_VERSION = "v1";
 process.env.ZAPI_RECEIVED_WEBHOOK_SECRET = "test-webhook-secret";
 
 const { Elysia } = await import("elysia");

@@ -19,7 +19,7 @@ async function main() {
     taskService,
     moderationsRepo,
     groupMessagesRepo,
-    classifyMessage,
+    moderate,
   } = await buildDeps();
 
   // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
@@ -35,7 +35,7 @@ async function main() {
   // --- Consumer AMQP: processa jobs da fila ---
   const handleMessage = createJobHandler({
     whatsappGatewayRegistry,
-    classifyMessage,
+    moderate,
     taskService,
     moderationsRepo,
     groupMessagesRepo,
