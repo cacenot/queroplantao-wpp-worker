@@ -134,7 +134,7 @@ if (args.length === 0) {
 }
 
 const csvPath = args[0] as string;
-const modelString = process.env.AI_MODEL_ANALYZE_MESSAGE ?? "openai/gpt-4o-mini";
+const modelString = process.env.MODERATION_MODEL ?? "openai/gpt-4o-mini";
 
 // Read input
 let inputContent: string;

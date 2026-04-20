@@ -1,23 +1,23 @@
-import type { MessageAnalysis } from "../../ai/moderator.ts";
+import type { ClassifyResult } from "../../ai/classify-tiered.ts";
 import type { GroupMessagesRepository } from "../../db/repositories/group-messages-repository.ts";
 import type { MessageModerationsRepository } from "../../db/repositories/message-moderations-repository.ts";
 import type { ModerateGroupMessagePayload } from "../../jobs/types.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
 import { logger } from "../../lib/logger.ts";
 
-type ClassifyFn = (text: string) => Promise<MessageAnalysis>;
+export type ModerateFn = (text: string) => Promise<ClassifyResult>;
 
 export interface ModerateGroupMessageDeps {
   moderationsRepo: MessageModerationsRepository;
   groupMessagesRepo: GroupMessagesRepository;
-  classify: ClassifyFn;
+  moderate: ModerateFn;
 }
 
 export async function moderateGroupMessage(
   payload: ModerateGroupMessagePayload,
   deps: ModerateGroupMessageDeps
 ): Promise<void> {
-  const { moderationsRepo, groupMessagesRepo, classify } = deps;
+  const { moderationsRepo, groupMessagesRepo, moderate } = deps;
 
   const record = await moderationsRepo.findByIdWithMessage(payload.moderationId);
   if (!record) {
@@ -43,16 +43,18 @@ export async function moderateGroupMessage(
   const start = performance.now();
 
   try {
-    const analysis = await classify(text);
+    const result = await moderate(text);
     const latency = Math.round(performance.now() - start);
+    const { analysis, modelUsed } = result;
 
     await moderationsRepo.markAnalyzed(payload.moderationId, {
+      model: modelUsed,
       reason: analysis.reason,
       partner: analysis.partner,
       category: analysis.category,
       confidence: analysis.confidence,
       action: analysis.action,
-      rawResult: analysis as unknown as Record<string, unknown>,
+      rawResult: buildRawResult(result),
       promptTokens: null,
       completionTokens: null,
       latencyMs: latency,
@@ -73,4 +75,13 @@ export async function moderateGroupMessage(
     }
     throw err;
   }
+}
+
+export function buildRawResult(result: ClassifyResult): Record<string, unknown> {
+  const raw: Record<string, unknown> = {
+    analysis: result.analysis,
+    escalated: result.escalated,
+  };
+  if (result.primaryAnalysis) raw.primaryAnalysis = result.primaryAnalysis;
+  return raw;
 }

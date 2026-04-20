@@ -37,8 +37,11 @@ export class ModerationConfigService {
   }
 
   async createConfig(input: CreateModerationConfigInput): Promise<ModerationConfig> {
-    const contentHash = hashConfig(input);
+    if (await this.deps.repo.existsByVersion(input.version)) {
+      throw new ConflictError(`Version "${input.version}" já existe`);
+    }
 
+    const contentHash = hashConfig(input);
     await this.warnIfContentHashReused(contentHash, input.version);
 
     const row: NewModerationConfigRow = {
@@ -75,10 +78,6 @@ export class ModerationConfigService {
   }
 
   private async insertAndActivate(row: NewModerationConfigRow): Promise<ModerationConfigRow> {
-    if (await this.deps.repo.existsByVersion(row.version)) {
-      throw new ConflictError(`Version "${row.version}" já existe`);
-    }
-
     try {
       return await this.deps.repo.withTransaction((tx) =>
         this.deps.repo.insertAndActivate(row, tx)
@@ -122,6 +121,10 @@ function hashConfig(input: CreateModerationConfigInput): string {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
+// Nome vem da migration 0007_familiar_corsair.sql (CONSTRAINT
+// `moderation_configs_version_unique`). Se renomear o constraint numa migration
+// futura, atualizar o regex aqui — o teste de race em `moderation-config-service.test.ts`
+// depende desse match.
 function isUniqueViolationOnVersion(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message;

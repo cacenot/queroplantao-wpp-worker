@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import type { ClassifyResult } from "../../ai/classify-tiered.ts";
 import type { MessageAnalysis } from "../../ai/moderator.ts";
 import type { GroupMessagesRepository } from "../../db/repositories/group-messages-repository.ts";
 import type {
@@ -6,7 +7,7 @@ import type {
   MessageWithModeration,
 } from "../../db/repositories/message-moderations-repository.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
-import { moderateGroupMessage } from "./moderate-group-message.ts";
+import { buildRawResult, moderateGroupMessage } from "./moderate-group-message.ts";
 
 const MODERATION_ID = "00000000-0000-0000-0000-000000000001";
 const MESSAGE_ID = "00000000-0000-0000-0000-000000000002";
@@ -18,6 +19,16 @@ function baseAnalysis(): MessageAnalysis {
     category: "job_opportunity",
     confidence: 0.92,
     action: "allow",
+  };
+}
+
+function baseResult(overrides: Partial<ClassifyResult> = {}): ClassifyResult {
+  return {
+    analysis: baseAnalysis(),
+    modelUsed: "openai/gpt-4o-mini",
+    escalated: false,
+    primaryAnalysis: null,
+    ...overrides,
   };
 }
 
@@ -85,7 +96,7 @@ function makeRecord(
 }
 
 describe("moderateGroupMessage", () => {
-  it("classifica e persiste os resultados", async () => {
+  it("classifica e persiste os resultados (sem escalação)", async () => {
     const record = makeRecord();
     const moderationsRepo = {
       findByIdWithMessage: mock(() => Promise.resolve(record)),
@@ -98,23 +109,86 @@ describe("moderateGroupMessage", () => {
     } as unknown as GroupMessagesRepository;
 
     const analysis = baseAnalysis();
-    const classify = mock(() => Promise.resolve(analysis));
+    const moderate = mock(() =>
+      Promise.resolve(baseResult({ analysis, modelUsed: "openai/gpt-4o-mini" }))
+    );
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, classify }
+      { moderationsRepo, groupMessagesRepo, moderate }
     );
 
-    expect(classify).toHaveBeenCalledWith("tenho vaga de plantão");
+    expect(moderate).toHaveBeenCalledWith("tenho vaga de plantão");
     expect(moderationsRepo.markAnalyzed).toHaveBeenCalledTimes(1);
     const [id, fields] = (moderationsRepo.markAnalyzed as unknown as ReturnType<typeof mock>).mock
-      .calls[0] as [string, { category: string; action: string; confidence: number }];
+      .calls[0] as [
+      string,
+      {
+        model: string;
+        category: string;
+        action: string;
+        confidence: number;
+        rawResult: Record<string, unknown>;
+      },
+    ];
     expect(id).toBe(MODERATION_ID);
+    expect(fields.model).toBe("openai/gpt-4o-mini");
     expect(fields.category).toBe(analysis.category);
     expect(fields.action).toBe(analysis.action);
     expect(fields.confidence).toBe(analysis.confidence);
+    expect(fields.rawResult.escalated).toBe(false);
+    expect(fields.rawResult.analysis).toEqual(analysis);
+    expect(fields.rawResult.primaryAnalysis).toBeUndefined();
 
     expect(groupMessagesRepo.setModerationStatus).toHaveBeenCalledWith(MESSAGE_ID, "analyzed");
+  });
+
+  it("persiste modelUsed e primaryAnalysis em rawResult quando escala", async () => {
+    const record = makeRecord();
+    const moderationsRepo = {
+      findByIdWithMessage: mock(() => Promise.resolve(record)),
+      markAnalyzed: mock(() => Promise.resolve()),
+      markFailed: mock(() => Promise.resolve()),
+    } as unknown as MessageModerationsRepository;
+
+    const groupMessagesRepo = {
+      setModerationStatus: mock(() => Promise.resolve()),
+    } as unknown as GroupMessagesRepository;
+
+    const primary: MessageAnalysis = {
+      reason: "ambíguo",
+      partner: null,
+      category: "product_sales",
+      confidence: 0.55,
+      action: "remove",
+    };
+    const final: MessageAnalysis = {
+      reason: "cert",
+      partner: null,
+      category: "product_sales",
+      confidence: 0.9,
+      action: "remove",
+    };
+    const moderate = mock(() =>
+      Promise.resolve({
+        analysis: final,
+        modelUsed: "openai/gpt-4o",
+        escalated: true,
+        primaryAnalysis: primary,
+      } as ClassifyResult)
+    );
+
+    await moderateGroupMessage(
+      { moderationId: MODERATION_ID },
+      { moderationsRepo, groupMessagesRepo, moderate }
+    );
+
+    const [, fields] = (moderationsRepo.markAnalyzed as unknown as ReturnType<typeof mock>).mock
+      .calls[0] as [string, { model: string; rawResult: Record<string, unknown> }];
+    expect(fields.model).toBe("openai/gpt-4o");
+    expect(fields.rawResult.escalated).toBe(true);
+    expect(fields.rawResult.analysis).toEqual(final);
+    expect(fields.rawResult.primaryAnalysis).toEqual(primary);
   });
 
   it("propaga erro transiente sem marcar failed (para retry AMQP re-executar)", async () => {
@@ -129,12 +203,12 @@ describe("moderateGroupMessage", () => {
       setModerationStatus: mock(() => Promise.resolve()),
     } as unknown as GroupMessagesRepository;
 
-    const classify = mock(() => Promise.reject(new Error("LLM indisponível")));
+    const moderate = mock(() => Promise.reject(new Error("LLM indisponível")));
 
     await expect(
       moderateGroupMessage(
         { moderationId: MODERATION_ID },
-        { moderationsRepo, groupMessagesRepo, classify }
+        { moderationsRepo, groupMessagesRepo, moderate }
       )
     ).rejects.toThrow("LLM indisponível");
 
@@ -155,12 +229,12 @@ describe("moderateGroupMessage", () => {
       setModerationStatus: mock(() => Promise.resolve()),
     } as unknown as GroupMessagesRepository;
 
-    const classify = mock(() => Promise.reject(new NonRetryableError("conteúdo inválido")));
+    const moderate = mock(() => Promise.reject(new NonRetryableError("conteúdo inválido")));
 
     await expect(
       moderateGroupMessage(
         { moderationId: MODERATION_ID },
-        { moderationsRepo, groupMessagesRepo, classify }
+        { moderationsRepo, groupMessagesRepo, moderate }
       )
     ).rejects.toBeInstanceOf(NonRetryableError);
 
@@ -180,14 +254,14 @@ describe("moderateGroupMessage", () => {
       setModerationStatus: mock(() => Promise.resolve()),
     } as unknown as GroupMessagesRepository;
 
-    const classify = mock(() => Promise.resolve(baseAnalysis()));
+    const moderate = mock(() => Promise.resolve(baseResult()));
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, classify }
+      { moderationsRepo, groupMessagesRepo, moderate }
     );
 
-    expect(classify).not.toHaveBeenCalled();
+    expect(moderate).not.toHaveBeenCalled();
     expect(moderationsRepo.markAnalyzed).not.toHaveBeenCalled();
   });
 
@@ -202,12 +276,12 @@ describe("moderateGroupMessage", () => {
       setModerationStatus: mock(() => Promise.resolve()),
     } as unknown as GroupMessagesRepository;
 
-    const classify = mock(() => Promise.resolve(baseAnalysis()));
+    const moderate = mock(() => Promise.resolve(baseResult()));
 
     await expect(
       moderateGroupMessage(
         { moderationId: MODERATION_ID },
-        { moderationsRepo, groupMessagesRepo, classify }
+        { moderationsRepo, groupMessagesRepo, moderate }
       )
     ).rejects.toBeInstanceOf(NonRetryableError);
   });
@@ -227,13 +301,37 @@ describe("moderateGroupMessage", () => {
       setModerationStatus: mock(() => Promise.resolve()),
     } as unknown as GroupMessagesRepository;
 
-    const classify = mock(() => Promise.resolve(baseAnalysis()));
+    const moderate = mock(() => Promise.resolve(baseResult()));
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, classify }
+      { moderationsRepo, groupMessagesRepo, moderate }
     );
 
-    expect(classify).toHaveBeenCalledWith("texto do caption");
+    expect(moderate).toHaveBeenCalledWith("texto do caption");
+  });
+});
+
+describe("buildRawResult", () => {
+  it("inclui analysis + escalated e omite primaryAnalysis quando é null", () => {
+    const raw = buildRawResult(baseResult());
+    expect(raw.analysis).toEqual(baseAnalysis());
+    expect(raw.escalated).toBe(false);
+    expect(raw.primaryAnalysis).toBeUndefined();
+  });
+
+  it("inclui primaryAnalysis quando escala", () => {
+    const primary: MessageAnalysis = {
+      reason: "ambíguo",
+      partner: null,
+      category: "product_sales",
+      confidence: 0.5,
+      action: "remove",
+    };
+    const raw = buildRawResult(
+      baseResult({ escalated: true, modelUsed: "openai/gpt-4o", primaryAnalysis: primary })
+    );
+    expect(raw.escalated).toBe(true);
+    expect(raw.primaryAnalysis).toEqual(primary);
   });
 });

@@ -1,12 +1,7 @@
 import type { Category } from "../../ai/categories.ts";
-import type { MessageAnalysis } from "../../ai/moderator.ts";
+import type { ModerationConfigExample } from "../../db/schema/moderation-configs.ts";
 
-export type ModerationConfigExample = {
-  text: string;
-  analysis: MessageAnalysis;
-  /** Comentário do admin; não é enviado ao modelo. */
-  note?: string;
-};
+export type { ModerationConfigExample };
 
 /** Config ativa (já parseada) usada pelo worker para moderar mensagens. */
 export type ModerationConfig = {

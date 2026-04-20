@@ -100,7 +100,7 @@ if (args.length === 0) {
 }
 
 const text = args.join(" ");
-const modelString = process.env.AI_MODEL_ANALYZE_MESSAGE ?? "openai/gpt-4o-mini";
+const modelString = process.env.MODERATION_MODEL ?? "openai/gpt-4o-mini";
 
 console.log(`\n  ${dim("Classificando...")} ${dim(modelString)}`);
 

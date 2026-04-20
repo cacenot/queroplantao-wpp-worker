@@ -6,8 +6,6 @@ import {
   type NewModerationConfigRow,
 } from "../schema/moderation-configs.ts";
 
-type DbOrTx = Db;
-
 export class ModerationConfigRepository {
   constructor(private readonly db: Db) {}
 
@@ -41,7 +39,7 @@ export class ModerationConfigRepository {
    * Insere a nova row já ativa, desativando a anterior na mesma transação.
    * A partial unique `moderation_configs_active_idx` garante atomicidade.
    */
-  async insertAndActivate(row: NewModerationConfigRow, tx: DbOrTx): Promise<ModerationConfigRow> {
+  async insertAndActivate(row: NewModerationConfigRow, tx: Db): Promise<ModerationConfigRow> {
     await tx
       .update(moderationConfigs)
       .set({ isActive: false, updatedAt: new Date() })
@@ -63,7 +61,7 @@ export class ModerationConfigRepository {
    * Flipa `is_active` da row indicada. Retorna `null` se a versão não existe.
    * Caso a row já esteja ativa, é no-op e retorna a row atual.
    */
-  async activateByVersion(version: string, tx: DbOrTx): Promise<ModerationConfigRow | null> {
+  async activateByVersion(version: string, tx: Db): Promise<ModerationConfigRow | null> {
     const target = await tx
       .select()
       .from(moderationConfigs)
@@ -88,7 +86,7 @@ export class ModerationConfigRepository {
     return updated ?? null;
   }
 
-  async existsByVersion(version: string, tx?: DbOrTx): Promise<boolean> {
+  async existsByVersion(version: string, tx?: Db): Promise<boolean> {
     const executor = tx ?? this.db;
     const [row] = await executor
       .select({ one: sql<number>`1` })
@@ -98,7 +96,7 @@ export class ModerationConfigRepository {
     return Boolean(row);
   }
 
-  async withTransaction<T>(fn: (tx: DbOrTx) => Promise<T>): Promise<T> {
-    return this.db.transaction(async (tx) => fn(tx as unknown as DbOrTx));
+  async withTransaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => fn(tx as unknown as Db));
   }
 }
