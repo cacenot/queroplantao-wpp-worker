@@ -5,6 +5,7 @@ import { MessageModerationsRepository } from "../db/repositories/message-moderat
 import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
 import { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
 import { ModerationConfigRepository } from "../db/repositories/moderation-config-repository.ts";
+import { PhonePoliciesRepository } from "../db/repositories/phone-policies-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { createRedisConnection } from "../lib/redis.ts";
@@ -15,6 +16,7 @@ import {
   ModerationConfigCache,
   ModerationConfigService,
 } from "../services/moderation-config/index.ts";
+import { PhonePoliciesService } from "../services/phone-policies/index.ts";
 import { TaskService } from "../services/task/index.ts";
 
 export async function buildDeps() {
@@ -33,6 +35,7 @@ export async function buildDeps() {
   const groupMessagesRepo = new GroupMessagesRepository(db);
   const moderationsRepo = new MessageModerationsRepository(db);
   const moderationConfigRepo = new ModerationConfigRepository(db);
+  const phonePoliciesRepo = new PhonePoliciesRepository(db);
 
   // --- Serviços de domínio ---
   const taskService = new TaskService({
@@ -70,6 +73,8 @@ export async function buildDeps() {
     moderationReuseWindowMs: env.MODERATION_REUSE_WINDOW_MS,
   });
 
+  const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
+
   return {
     sql,
     redis,
@@ -78,6 +83,7 @@ export async function buildDeps() {
     taskService,
     instanceService,
     moderationConfigService,
+    phonePoliciesService,
     groupMessagesService,
   };
 }
