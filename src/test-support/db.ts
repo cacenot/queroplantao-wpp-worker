@@ -41,6 +41,11 @@ export async function createTestDb(): Promise<{
     CREATE TYPE "${schemaName}"."task_type" AS ENUM (
       'whatsapp.delete_message', 'whatsapp.remove_participant', 'whatsapp.moderate_group_message'
     );
+    CREATE TYPE "${schemaName}"."messaging_protocol" AS ENUM ('whatsapp', 'telegram');
+    CREATE TYPE "${schemaName}"."phone_policy_kind" AS ENUM ('blacklist', 'bypass');
+    CREATE TYPE "${schemaName}"."phone_policy_source" AS ENUM (
+      'manual', 'moderation_auto', 'group_admin_sync', 'admin_api_sync'
+    );
     CREATE TABLE "${schemaName}"."tasks" (
       "id" uuid PRIMARY KEY NOT NULL,
       "type" "${schemaName}"."task_type" NOT NULL,
@@ -72,6 +77,27 @@ export async function createTestDb(): Promise<{
     CREATE UNIQUE INDEX "moderation_configs_active_idx_${schemaName}"
       ON "${schemaName}"."moderation_configs" ("is_active")
       WHERE "is_active" = true;
+    CREATE TABLE "${schemaName}"."phone_policies" (
+      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "protocol" "${schemaName}"."messaging_protocol" NOT NULL,
+      "kind" "${schemaName}"."phone_policy_kind" NOT NULL,
+      "phone" text NOT NULL,
+      "group_external_id" text,
+      "source" "${schemaName}"."phone_policy_source" NOT NULL DEFAULT 'manual',
+      "reason" text,
+      "notes" text,
+      "moderation_id" uuid,
+      "metadata" jsonb NOT NULL DEFAULT '{}'::jsonb,
+      "expires_at" timestamp with time zone,
+      "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX "phone_policies_unique_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone", COALESCE("group_external_id", ''));
+    CREATE INDEX "phone_policies_lookup_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone");
+    CREATE INDEX "phone_policies_expires_at_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("expires_at") WHERE "expires_at" IS NOT NULL;
   `);
 
   const db = drizzle(sql, { schema });

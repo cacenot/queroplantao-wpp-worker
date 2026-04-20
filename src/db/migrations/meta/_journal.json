@@ -57,6 +57,13 @@
       "when": 1776636981149,
       "tag": "0007_familiar_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776649782700,
+      "tag": "0008_smiling_flatman",
+      "breakpoints": true
     }
   ]
 }
