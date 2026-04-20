@@ -71,7 +71,7 @@ function makeRemoveParticipantJob(id = "550e8400-e29b-41d4-a716-446655440002") {
     payload: {
       providerInstanceId: PROVIDER_INSTANCE_ID,
       groupId: "group-1",
-      phones: ["5511999990001"],
+      phones: ["+5511999990001"],
     },
   };
 }

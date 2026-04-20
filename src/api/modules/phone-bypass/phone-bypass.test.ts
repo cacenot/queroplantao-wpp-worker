@@ -34,7 +34,8 @@ function makeView(overrides: Partial<PhonePolicyView> = {}): PhonePolicyView {
     id: VALID_ID,
     protocol: "whatsapp",
     kind: "bypass",
-    phone: "5511987654321",
+    phone: "+5511987654321",
+    senderExternalId: null,
     groupExternalId: null,
     source: "manual",
     reason: null,
@@ -104,7 +105,7 @@ describe("POST /admin/moderation/bypass", () => {
     const res = await makeRequest(
       app,
       "/admin/moderation/bypass",
-      { method: "POST", body: JSON.stringify({ protocol: "whatsapp", phone: "5511987654321" }) },
+      { method: "POST", body: JSON.stringify({ protocol: "whatsapp", phone: "+5511987654321" }) },
       null
     );
     expect(res.status).toBe(401);
@@ -113,12 +114,12 @@ describe("POST /admin/moderation/bypass", () => {
   it("201 no happy path", async () => {
     const res = await makeRequest(app, "/admin/moderation/bypass", {
       method: "POST",
-      body: JSON.stringify({ protocol: "whatsapp", phone: "5511987654321" }),
+      body: JSON.stringify({ protocol: "whatsapp", phone: "+5511987654321" }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as OkResp<PhonePolicyView>;
     expect(body.data.kind).toBe("bypass");
-    expect(body.data.phone).toBe("5511987654321");
+    expect(body.data.phone).toBe("+5511987654321");
   });
 
   it("422 quando phone tem formato inválido", async () => {
@@ -137,11 +138,44 @@ describe("POST /admin/moderation/bypass", () => {
     });
     const res = await makeRequest(app, "/admin/moderation/bypass", {
       method: "POST",
-      body: JSON.stringify({ protocol: "whatsapp", phone: "5511987654321" }),
+      body: JSON.stringify({ protocol: "whatsapp", phone: "+5511987654321" }),
     });
     expect(res.status).toBe(409);
     const body = (await res.json()) as ErrorResp;
     expect(body.error).toContain("Política já existe");
+  });
+
+  it("201 aceita só senderExternalId (sem phone)", async () => {
+    let captured: AddPhonePolicyInput | undefined;
+    app = buildApp({
+      add: async (input) => {
+        captured = input;
+        return makeView({ phone: null, senderExternalId: "1234567890@lid" });
+      },
+    });
+    const res = await makeRequest(app, "/admin/moderation/bypass", {
+      method: "POST",
+      body: JSON.stringify({
+        protocol: "whatsapp",
+        senderExternalId: "1234567890@lid",
+      }),
+    });
+    expect(res.status).toBe(201);
+    expect(captured?.senderExternalId).toBe("1234567890@lid");
+  });
+
+  it("400 quando nem phone nem senderExternalId são passados", async () => {
+    const { ValidationError } = await import("../../../services/phone-policies/index.ts");
+    app = buildApp({
+      add: async () => {
+        throw new ValidationError("Pelo menos um de `phone` ou `senderExternalId` é obrigatório");
+      },
+    });
+    const res = await makeRequest(app, "/admin/moderation/bypass", {
+      method: "POST",
+      body: JSON.stringify({ protocol: "whatsapp" }),
+    });
+    expect(res.status).toBe(400);
   });
 });
 

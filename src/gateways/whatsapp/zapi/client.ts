@@ -1,4 +1,5 @@
 import { env } from "../../../config/env.ts";
+import { toZapiDigits } from "../../../lib/phone.ts";
 import type { MessagingProviderExecution } from "../../types.ts";
 import type {
   DeleteMessagePayload,
@@ -58,7 +59,7 @@ export class ZApiClient implements WhatsAppProvider {
       method: "POST",
       body: JSON.stringify({
         groupId: payload.groupId,
-        phones: payload.phones,
+        phones: payload.phones.map((p) => toZapiDigits(p) ?? p),
       }),
     });
 

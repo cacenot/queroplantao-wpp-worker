@@ -3,15 +3,16 @@ import type {
   PhonePoliciesRepository,
 } from "../../db/repositories/phone-policies-repository.ts";
 import type { NewPhonePolicyRow } from "../../db/schema/phone-policies.ts";
-import { normalizePhone, toPhonePolicyView } from "./serialize.ts";
+import { toE164 } from "../../lib/phone.ts";
+import { toPhonePolicyView } from "./serialize.ts";
 import {
   type AddPhonePolicyInput,
   ConflictError,
   type ListPhonePoliciesFilters,
   type ListPhonePoliciesResult,
   NotFoundError,
+  type PhonePolicyMatchInput,
   type PhonePolicyView,
-  type Protocol,
   ValidationError,
 } from "./types.ts";
 
@@ -23,17 +24,23 @@ export class PhonePoliciesService {
   constructor(private readonly deps: PhonePoliciesServiceDeps) {}
 
   async add(input: AddPhonePolicyInput): Promise<PhonePolicyView> {
-    const phone = normalizePhone(input.phone);
-    if (phone.length < 8 || phone.length > 15) {
-      throw new ValidationError(
-        `Phone inválido após normalização (esperado 8-15 dígitos, obtido ${phone.length})`
-      );
+    const rawPhone = input.phone?.trim();
+    const phone = toE164(rawPhone);
+    if (rawPhone && phone === null) {
+      throw new ValidationError(`Phone inválido (esperado E.164, obtido "${rawPhone}")`);
+    }
+
+    const senderExternalId = input.senderExternalId?.trim() || null;
+
+    if (!phone && !senderExternalId) {
+      throw new ValidationError("Pelo menos um de `phone` ou `senderExternalId` é obrigatório");
     }
 
     const row: NewPhonePolicyRow = {
       protocol: input.protocol,
       kind: input.kind,
       phone,
+      senderExternalId,
       groupExternalId: input.groupExternalId ?? null,
       source: input.source ?? "manual",
       reason: input.reason ?? null,
@@ -48,8 +55,9 @@ export class PhonePoliciesService {
       return toPhonePolicyView(created);
     } catch (err) {
       if (isUniqueViolation(err)) {
+        const ident = phone ?? senderExternalId;
         throw new ConflictError(
-          `Política já existe para (${row.protocol}, ${row.kind}, ${row.phone}, ${row.groupExternalId ?? "global"})`
+          `Política já existe para (${row.protocol}, ${row.kind}, ${ident}, ${row.groupExternalId ?? "global"})`
         );
       }
       throw err;
@@ -75,7 +83,7 @@ export class PhonePoliciesService {
     const { rows, total } = await this.deps.repo.list(
       {
         ...filters,
-        phone: filters.phone ? normalizePhone(filters.phone) : undefined,
+        phone: filters.phone ? (toE164(filters.phone) ?? undefined) : undefined,
       },
       pagination
     );
@@ -85,31 +93,28 @@ export class PhonePoliciesService {
     };
   }
 
-  async isBlacklisted(
-    phone: string,
-    protocol: Protocol,
-    groupExternalId: string
-  ): Promise<PhonePolicyView | null> {
-    return this.findMatch(protocol, "blacklist", phone, groupExternalId);
+  async isBlacklisted(input: PhonePolicyMatchInput): Promise<PhonePolicyView | null> {
+    return this.findMatch("blacklist", input);
   }
 
-  async isBypassed(
-    phone: string,
-    protocol: Protocol,
-    groupExternalId: string
-  ): Promise<PhonePolicyView | null> {
-    return this.findMatch(protocol, "bypass", phone, groupExternalId);
+  async isBypassed(input: PhonePolicyMatchInput): Promise<PhonePolicyView | null> {
+    return this.findMatch("bypass", input);
   }
 
   private async findMatch(
-    protocol: Protocol,
     kind: "blacklist" | "bypass",
-    phone: string,
-    groupExternalId: string
+    input: PhonePolicyMatchInput
   ): Promise<PhonePolicyView | null> {
-    const normalized = normalizePhone(phone);
-    if (!normalized) return null;
-    const row = await this.deps.repo.findMatch(protocol, kind, normalized, groupExternalId);
+    const phone = toE164(input.phone);
+    const senderExternalId = input.senderExternalId?.trim() || null;
+    if (!phone && !senderExternalId) return null;
+
+    const row = await this.deps.repo.findMatch(
+      input.protocol,
+      kind,
+      { phone, senderExternalId },
+      input.groupExternalId
+    );
     return row ? toPhonePolicyView(row) : null;
   }
 }
@@ -124,8 +129,7 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return parsed;
 }
 
-// Nome vem da migration 0008_smiling_flatman.sql (index `phone_policies_unique_idx`).
 function isUniqueViolation(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /phone_policies_unique_idx|duplicate key/i.test(err.message);
+  return /phone_policies_unique_(phone|external_id)_idx|duplicate key/i.test(err.message);
 }

@@ -50,7 +50,7 @@ const REMOVE_PARTICIPANT_JOB = {
   payload: {
     providerInstanceId: PROVIDER_INSTANCE_ID,
     groupId: "group-1",
-    phones: ["5511999990001"],
+    phones: ["+5511999990001"],
   },
 } as const;
 
@@ -169,6 +169,10 @@ function makeHandler(
   const moderationsRepo = makeModerationsRepo();
   const groupMessagesRepo = makeGroupMessagesRepo();
 
+  const enforcement = {
+    evaluateAndEnforce: mock(() => Promise.resolve()),
+  };
+
   const handler = createJobHandler({
     whatsappGatewayRegistry,
     moderate: moderate as unknown as ModerateFn,
@@ -178,6 +182,8 @@ function makeHandler(
     moderationsRepo: moderationsRepo as any,
     // biome-ignore lint/suspicious/noExplicitAny: fake repo tipado via makeGroupMessagesRepo
     groupMessagesRepo: groupMessagesRepo as any,
+    // biome-ignore lint/suspicious/noExplicitAny: fake enforcement service
+    enforcement: enforcement as any,
     // biome-ignore lint/suspicious/noExplicitAny: fake publisher tipado via makePublisher
     publisher: publisher as any,
     topology,

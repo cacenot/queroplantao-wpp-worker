@@ -17,6 +17,7 @@ import { NonRetryableError } from "../lib/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { RetryTopology } from "../lib/retry-topology.ts";
 import { Sentry } from "../lib/sentry.ts";
+import type { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
 import type { TaskService } from "../services/task/index.ts";
 
 type JobLogger = Logger;
@@ -27,6 +28,7 @@ interface JobHandlerOptions {
   taskService: TaskService;
   moderationsRepo: MessageModerationsRepository;
   groupMessagesRepo: GroupMessagesRepository;
+  enforcement: ModerationEnforcementService;
   publisher: Publisher;
   topology: RetryTopology;
   onSuccess?: () => void;
@@ -37,6 +39,7 @@ interface ExecuteDeps {
   moderate: ModerateFn;
   moderationsRepo: MessageModerationsRepository;
   groupMessagesRepo: GroupMessagesRepository;
+  enforcement: ModerationEnforcementService;
 }
 
 interface PublishDeps {
@@ -94,6 +97,7 @@ async function executeJob(job: JobSchema, deps: ExecuteDeps): Promise<void> {
         moderationsRepo: deps.moderationsRepo,
         groupMessagesRepo: deps.groupMessagesRepo,
         moderate: deps.moderate,
+        enforcement: deps.enforcement,
       });
   }
 }
@@ -135,6 +139,7 @@ export function createJobHandler(options: JobHandlerOptions) {
     taskService,
     moderationsRepo,
     groupMessagesRepo,
+    enforcement,
     publisher,
     topology,
     onSuccess,
@@ -145,6 +150,7 @@ export function createJobHandler(options: JobHandlerOptions) {
     moderate,
     moderationsRepo,
     groupMessagesRepo,
+    enforcement,
   };
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {

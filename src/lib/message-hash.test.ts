@@ -7,7 +7,7 @@ function baseParts() {
   return {
     protocol: "whatsapp",
     groupExternalId: "120363-group",
-    senderPhone: "5511999999999",
+    senderPhone: "+5511999999999",
     senderExternalId: "1111:1@lid",
     content: "spam content",
     sentAt: new Date("2026-04-16T12:00:10.000Z"),
@@ -36,7 +36,7 @@ describe("computeIngestionDedupeHash", () => {
   it("diverge ao mudar o remetente", () => {
     const a = computeIngestionDedupeHash(baseParts(), WINDOW_MS);
     const b = computeIngestionDedupeHash(
-      { ...baseParts(), senderPhone: "5511888888888" },
+      { ...baseParts(), senderPhone: "+5511888888888" },
       WINDOW_MS
     );
     expect(a).not.toBe(b);

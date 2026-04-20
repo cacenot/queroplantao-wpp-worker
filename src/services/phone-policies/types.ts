@@ -9,7 +9,8 @@ export type PhonePolicyView = {
   id: string;
   protocol: Protocol;
   kind: PhonePolicyKind;
-  phone: string;
+  phone: string | null;
+  senderExternalId: string | null;
   groupExternalId: string | null;
   source: PhonePolicySource;
   reason: string | null;
@@ -24,7 +25,8 @@ export type PhonePolicyView = {
 export type AddPhonePolicyInput = {
   protocol: Protocol;
   kind: PhonePolicyKind;
-  phone: string;
+  phone?: string | null;
+  senderExternalId?: string | null;
   groupExternalId?: string | null;
   source?: PhonePolicySource;
   reason?: string | null;
@@ -38,8 +40,16 @@ export type ListPhonePoliciesFilters = {
   protocol?: Protocol;
   kind?: PhonePolicyKind;
   phone?: string;
+  senderExternalId?: string;
   groupExternalId?: string | null;
   source?: PhonePolicySource;
+};
+
+export type PhonePolicyMatchInput = {
+  protocol: Protocol;
+  groupExternalId: string;
+  phone: string | null;
+  senderExternalId: string | null;
 };
 
 export type ListPhonePoliciesResult = {

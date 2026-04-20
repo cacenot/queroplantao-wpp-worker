@@ -1,5 +1,5 @@
 export { PhonePoliciesService } from "./phone-policies-service.ts";
-export { normalizePhone, toPhonePolicyView } from "./serialize.ts";
+export { toPhonePolicyView } from "./serialize.ts";
 export {
   type AddPhonePolicyInput,
   ConflictError,
@@ -7,6 +7,7 @@ export {
   type ListPhonePoliciesResult,
   NotFoundError,
   type PhonePolicyKind,
+  type PhonePolicyMatchInput,
   type PhonePolicySource,
   type PhonePolicyView,
   type Protocol,

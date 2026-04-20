@@ -9,6 +9,7 @@ import { logger } from "../../lib/logger.ts";
 import { computeContentHash, computeIngestionDedupeHash } from "../../lib/message-hash.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
 import type { ModerationConfigService } from "../moderation-config/index.ts";
+import type { ModerationEnforcementService } from "../moderation-enforcement/index.ts";
 import type { TaskService } from "../task/index.ts";
 import type { IngestContext, IngestOutcome } from "./types.ts";
 
@@ -19,6 +20,7 @@ type GroupMessagesServiceOptions = {
   messagingGroupsCache: MessagingGroupsCache;
   taskService: TaskService;
   moderationConfigService: ModerationConfigService;
+  enforcement: ModerationEnforcementService;
   ingestionDedupeWindowMs: number;
   moderationReuseWindowMs: number;
 };
@@ -111,15 +113,21 @@ export class GroupMessagesService {
     }
 
     // — 4. Resolver moderação
-    return this.resolveModeration(row.id, contentHash);
+    return this.resolveModeration(row.id, contentHash, normalized, ctx);
   }
 
-  private async resolveModeration(messageId: string, contentHash: string): Promise<IngestOutcome> {
+  private async resolveModeration(
+    messageId: string,
+    contentHash: string,
+    normalized: NormalizedZapiMessage,
+    ctx: IngestContext
+  ): Promise<IngestOutcome> {
     const {
       groupMessagesRepo,
       moderationsRepo,
       taskService,
       moderationConfigService,
+      enforcement,
       moderationReuseWindowMs,
     } = this.options;
 
@@ -132,6 +140,28 @@ export class GroupMessagesService {
     if (cached) {
       const reused = await this.createCachedModeration(messageId, contentHash, cached);
       await groupMessagesRepo.setCurrentModeration(messageId, reused.id, "analyzed");
+
+      // Best-effort: enforcement de blacklist roda mesmo no caminho cached porque
+      // o sender pode estar na blacklist independentemente do conteúdo já estar
+      // catalogado.
+      await enforcement
+        .evaluateAndEnforce({
+          protocol: normalized.protocol,
+          groupExternalId: normalized.groupExternalId,
+          senderPhone: normalized.senderPhone,
+          senderExternalId: normalized.senderExternalId,
+          providerInstanceId: ctx.providerInstanceId,
+          externalMessageId: normalized.externalMessageId,
+          moderationId: reused.id,
+          groupMessageId: messageId,
+        })
+        .catch((err) =>
+          logger.warn(
+            { err, moderationId: reused.id, messageId },
+            "Enforcement (cached) falhou — moderação segue analyzed"
+          )
+        );
+
       return {
         status: "reused",
         messageId,

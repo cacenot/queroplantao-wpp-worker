@@ -7,10 +7,17 @@ import type {
   MessageWithModeration,
 } from "../../db/repositories/message-moderations-repository.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
+import type { ModerationEnforcementService } from "../../services/moderation-enforcement/index.ts";
 import { buildRawResult, moderateGroupMessage } from "./moderate-group-message.ts";
 
 const MODERATION_ID = "00000000-0000-0000-0000-000000000001";
 const MESSAGE_ID = "00000000-0000-0000-0000-000000000002";
+
+function makeEnforcement(behavior?: () => Promise<void>): ModerationEnforcementService {
+  return {
+    evaluateAndEnforce: mock(behavior ?? (() => Promise.resolve())),
+  } as unknown as ModerationEnforcementService;
+}
 
 function baseAnalysis(): MessageAnalysis {
   return {
@@ -68,7 +75,7 @@ function makeRecord(
       providerInstanceId: null,
       groupExternalId: "120363@g.us",
       messagingGroupId: null,
-      senderPhone: "5511999999999",
+      senderPhone: "+5511999999999",
       senderExternalId: null,
       senderName: "Fulano",
       externalMessageId: "msg-1",
@@ -115,7 +122,7 @@ describe("moderateGroupMessage", () => {
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, moderate }
+      { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
     );
 
     expect(moderate).toHaveBeenCalledWith("tenho vaga de plantão");
@@ -180,7 +187,7 @@ describe("moderateGroupMessage", () => {
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, moderate }
+      { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
     );
 
     const [, fields] = (moderationsRepo.markAnalyzed as unknown as ReturnType<typeof mock>).mock
@@ -208,7 +215,7 @@ describe("moderateGroupMessage", () => {
     await expect(
       moderateGroupMessage(
         { moderationId: MODERATION_ID },
-        { moderationsRepo, groupMessagesRepo, moderate }
+        { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
       )
     ).rejects.toThrow("LLM indisponível");
 
@@ -234,7 +241,7 @@ describe("moderateGroupMessage", () => {
     await expect(
       moderateGroupMessage(
         { moderationId: MODERATION_ID },
-        { moderationsRepo, groupMessagesRepo, moderate }
+        { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
       )
     ).rejects.toBeInstanceOf(NonRetryableError);
 
@@ -258,7 +265,7 @@ describe("moderateGroupMessage", () => {
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, moderate }
+      { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
     );
 
     expect(moderate).not.toHaveBeenCalled();
@@ -281,9 +288,64 @@ describe("moderateGroupMessage", () => {
     await expect(
       moderateGroupMessage(
         { moderationId: MODERATION_ID },
-        { moderationsRepo, groupMessagesRepo, moderate }
+        { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
       )
     ).rejects.toBeInstanceOf(NonRetryableError);
+  });
+
+  it("dispara enforcement.evaluateAndEnforce após setModerationStatus(analyzed)", async () => {
+    const record = makeRecord();
+    const moderationsRepo = {
+      findByIdWithMessage: mock(() => Promise.resolve(record)),
+      markAnalyzed: mock(() => Promise.resolve()),
+      markFailed: mock(() => Promise.resolve()),
+    } as unknown as MessageModerationsRepository;
+    const groupMessagesRepo = {
+      setModerationStatus: mock(() => Promise.resolve()),
+    } as unknown as GroupMessagesRepository;
+    const moderate = mock(() => Promise.resolve(baseResult()));
+    const enforcement = makeEnforcement();
+
+    await moderateGroupMessage(
+      { moderationId: MODERATION_ID },
+      { moderationsRepo, groupMessagesRepo, moderate, enforcement }
+    );
+
+    const evalCall = (enforcement.evaluateAndEnforce as unknown as ReturnType<typeof mock>).mock
+      .calls[0]?.[0];
+    expect(evalCall).toEqual({
+      protocol: "whatsapp",
+      groupExternalId: "120363@g.us",
+      senderPhone: "+5511999999999",
+      senderExternalId: null,
+      providerInstanceId: null,
+      externalMessageId: "msg-1",
+      moderationId: MODERATION_ID,
+      groupMessageId: MESSAGE_ID,
+    });
+  });
+
+  it("falha do enforcement não derruba moderação (warnOnFail-style)", async () => {
+    const record = makeRecord();
+    const moderationsRepo = {
+      findByIdWithMessage: mock(() => Promise.resolve(record)),
+      markAnalyzed: mock(() => Promise.resolve()),
+      markFailed: mock(() => Promise.resolve()),
+    } as unknown as MessageModerationsRepository;
+    const groupMessagesRepo = {
+      setModerationStatus: mock(() => Promise.resolve()),
+    } as unknown as GroupMessagesRepository;
+    const moderate = mock(() => Promise.resolve(baseResult()));
+    const enforcement = makeEnforcement(() => Promise.reject(new Error("redis down")));
+
+    await expect(
+      moderateGroupMessage(
+        { moderationId: MODERATION_ID },
+        { moderationsRepo, groupMessagesRepo, moderate, enforcement }
+      )
+    ).resolves.toBeUndefined();
+
+    expect(groupMessagesRepo.setModerationStatus).toHaveBeenCalledWith(MESSAGE_ID, "analyzed");
   });
 
   it("usa caption quando normalizedText é null", async () => {
@@ -305,7 +367,7 @@ describe("moderateGroupMessage", () => {
 
     await moderateGroupMessage(
       { moderationId: MODERATION_ID },
-      { moderationsRepo, groupMessagesRepo, moderate }
+      { moderationsRepo, groupMessagesRepo, moderate, enforcement: makeEnforcement() }
     );
 
     expect(moderate).toHaveBeenCalledWith("texto do caption");

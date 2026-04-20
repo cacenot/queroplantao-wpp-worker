@@ -7,6 +7,7 @@ export function toPhonePolicyView(row: PhonePolicyRow): PhonePolicyView {
     protocol: row.protocol as Protocol,
     kind: row.kind,
     phone: row.phone,
+    senderExternalId: row.senderExternalId,
     groupExternalId: row.groupExternalId,
     source: row.source,
     reason: row.reason,
@@ -17,12 +18,4 @@ export function toPhonePolicyView(row: PhonePolicyRow): PhonePolicyView {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
-}
-
-/**
- * Normaliza número para dígitos apenas (E.164 sem '+'). Remove sufixos de LID
- * (@s.whatsapp.net, @c.us, @lid) e qualquer caractere não-numérico.
- */
-export function normalizePhone(raw: string): string {
-  return raw.replace(/\D+/g, "");
 }

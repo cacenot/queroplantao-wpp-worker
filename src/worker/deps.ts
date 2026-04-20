@@ -5,14 +5,18 @@ import { createDbConnection, createDrizzleDb } from "../db/client.ts";
 import { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
 import { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
 import { ModerationConfigRepository } from "../db/repositories/moderation-config-repository.ts";
+import { PhonePoliciesRepository } from "../db/repositories/phone-policies-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
+import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { declareRetryTopology } from "../lib/retry-topology.ts";
 import {
   ModerationConfigCache,
   ModerationConfigService,
 } from "../services/moderation-config/index.ts";
+import { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
+import { PhonePoliciesService } from "../services/phone-policies/index.ts";
 import { TaskService } from "../services/task/index.ts";
 import { buildWhatsappGatewayRegistry, loadZApiProviderRows } from "./zapi-bootstrap.ts";
 
@@ -35,12 +39,21 @@ export async function buildDeps() {
   const moderationsRepo = new MessageModerationsRepository(db);
   const groupMessagesRepo = new GroupMessagesRepository(db);
   const moderationConfigRepo = new ModerationConfigRepository(db);
+  const phonePoliciesRepo = new PhonePoliciesRepository(db);
 
   // --- Serviços de domínio ---
   const taskService = new TaskService({
     repo: taskRepo,
     publisher: retryPublisher,
     queueName: env.AMQP_QUEUE,
+  });
+
+  const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
+  const enforcement = new ModerationEnforcementService({
+    phonePoliciesService,
+    taskService,
+    redis,
+    logger,
   });
 
   const moderationConfigCache = new ModerationConfigCache({
@@ -84,6 +97,7 @@ export async function buildDeps() {
     moderationsRepo,
     groupMessagesRepo,
     moderate,
+    enforcement,
   };
 }
 

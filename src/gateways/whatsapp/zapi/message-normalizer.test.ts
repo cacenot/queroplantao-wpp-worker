@@ -130,7 +130,7 @@ describe("extractZapiGroupMessage - accepted", () => {
     expect(r.data.normalizedText).toBe("olá mundo");
     expect(r.data.hasText).toBe(true);
     expect(r.data.groupExternalId).toBe("120363@g.us");
-    expect(r.data.senderPhone).toBe("5511888888888");
+    expect(r.data.senderPhone).toBe("+5511888888888");
     expect(r.data.senderExternalId).toBe("1111:1@lid");
     expect(r.data.zapi.instanceExternalId).toBe("3D0000");
   });

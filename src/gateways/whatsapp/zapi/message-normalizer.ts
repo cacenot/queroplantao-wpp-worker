@@ -1,3 +1,4 @@
+import { toE164 } from "../../../lib/phone.ts";
 import type { ZapiReceivedWebhookPayload } from "./webhook-schema.ts";
 
 export type MessageType =
@@ -72,13 +73,6 @@ export type ZapiIgnoreReason =
   | "missing-identifiers"
   | "unsupported-content"
   | "no-text-content";
-
-function normalizePhone(phone: string | undefined | null): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D+/g, "");
-  if (!digits) return null;
-  return digits;
-}
 
 function toDateMillis(momment: number | undefined): Date {
   if (typeof momment !== "number" || !Number.isFinite(momment)) {
@@ -155,7 +149,7 @@ export function extractZapiGroupMessage(
     return { status: "ignored", reason: "missing-identifiers" };
   }
 
-  const senderPhone = normalizePhone(payload.participantPhone);
+  const senderPhone = toE164(payload.participantPhone);
   const senderExternalId = trimmed(payload.participantLid);
   if (!senderPhone && !senderExternalId) {
     return { status: "ignored", reason: "missing-identifiers" };
@@ -204,7 +198,7 @@ export function extractZapiGroupMessage(
       isEdited: payload.isEdit === true,
       zapi: {
         instanceExternalId: trimmed(payload.instanceId) ?? "",
-        connectedPhone: normalizePhone(payload.connectedPhone),
+        connectedPhone: toE164(payload.connectedPhone),
         chatName: trimmed(payload.chatName),
         status: trimmed(payload.status),
         senderLid: trimmed(payload.participantLid),

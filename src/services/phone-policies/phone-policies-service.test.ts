@@ -9,7 +9,8 @@ function makeRow(overrides: Partial<PhonePolicyRow> = {}): PhonePolicyRow {
     id: "00000000-0000-0000-0000-000000000001",
     protocol: "whatsapp",
     kind: "blacklist",
-    phone: "5511999990001",
+    phone: "+5511999990001",
+    senderExternalId: null,
     groupExternalId: null,
     source: "manual",
     reason: null,
@@ -61,7 +62,7 @@ describe("PhonePoliciesService", () => {
         phone: "+55 (11) 99999-0001",
       });
 
-      expect((captured as { phone: string }).phone).toBe("5511999990001");
+      expect((captured as { phone: string }).phone).toBe("+5511999990001");
       expect((captured as { source: string }).source).toBe("manual");
       expect((captured as { groupExternalId: null }).groupExternalId).toBeNull();
       expect((captured as { metadata: Record<string, unknown> }).metadata).toEqual({});
@@ -71,12 +72,39 @@ describe("PhonePoliciesService", () => {
       const svc = new PhonePoliciesService({ repo: makeRepo() });
 
       await expect(
-        svc.add({ protocol: "whatsapp", kind: "blacklist", phone: "abc" })
-      ).rejects.toThrow(ValidationError);
-
-      await expect(
         svc.add({ protocol: "whatsapp", kind: "blacklist", phone: "1234" })
       ).rejects.toThrow(ValidationError);
+    });
+
+    it("rejeita quando nenhum identificador é passado", async () => {
+      const svc = new PhonePoliciesService({ repo: makeRepo() });
+
+      await expect(svc.add({ protocol: "whatsapp", kind: "blacklist" })).rejects.toThrow(
+        ValidationError
+      );
+      await expect(
+        svc.add({ protocol: "whatsapp", kind: "blacklist", phone: null })
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("aceita policy só com senderExternalId (LID)", async () => {
+      let captured: unknown;
+      const repo = makeRepo({
+        create: mock(async (row) => {
+          captured = row;
+          return makeRow(row);
+        }),
+      });
+      const svc = new PhonePoliciesService({ repo });
+
+      await svc.add({
+        protocol: "whatsapp",
+        kind: "blacklist",
+        senderExternalId: "1234567890@lid",
+      });
+
+      expect((captured as { phone: string | null }).phone).toBeNull();
+      expect((captured as { senderExternalId: string }).senderExternalId).toBe("1234567890@lid");
     });
 
     it("aceita expiresAt como string ISO", async () => {
@@ -92,7 +120,7 @@ describe("PhonePoliciesService", () => {
       await svc.add({
         protocol: "whatsapp",
         kind: "blacklist",
-        phone: "5511999990002",
+        phone: "+5511999990002",
         expiresAt: "2026-05-01T00:00:00Z",
       });
 
@@ -105,7 +133,7 @@ describe("PhonePoliciesService", () => {
         svc.add({
           protocol: "whatsapp",
           kind: "blacklist",
-          phone: "5511999990003",
+          phone: "+5511999990003",
           expiresAt: "not-a-date",
         })
       ).rejects.toThrow(ValidationError);
@@ -122,7 +150,7 @@ describe("PhonePoliciesService", () => {
       const svc = new PhonePoliciesService({ repo });
 
       await expect(
-        svc.add({ protocol: "whatsapp", kind: "blacklist", phone: "5511999990004" })
+        svc.add({ protocol: "whatsapp", kind: "blacklist", phone: "+5511999990004" })
       ).rejects.toThrow(ConflictError);
     });
   });
@@ -149,7 +177,7 @@ describe("PhonePoliciesService", () => {
         list: mock(async (filters) => {
           captured = filters;
           return {
-            rows: [makeRow({ phone: "5511999990010" })],
+            rows: [makeRow({ phone: "+5511999990010" })],
             total: 1,
           };
         }),
@@ -158,47 +186,87 @@ describe("PhonePoliciesService", () => {
 
       const result = await svc.list({ phone: "+55 (11) 99999-0010" }, { limit: 5, offset: 0 });
 
-      expect((captured as { phone: string }).phone).toBe("5511999990010");
+      expect((captured as { phone: string }).phone).toBe("+5511999990010");
       expect(result.data).toHaveLength(1);
       expect(result.pagination.total).toBe(1);
     });
   });
 
   describe("isBlacklisted / isBypassed", () => {
-    it("isBlacklisted chama findMatch com kind=blacklist", async () => {
+    it("isBlacklisted chama findMatch com kind=blacklist por phone", async () => {
       const repo = makeRepo({
         findMatch: mock(async () => makeRow({ kind: "blacklist" })),
       });
       const svc = new PhonePoliciesService({ repo });
 
-      const hit = await svc.isBlacklisted("5511999990020", "whatsapp", "grp-x");
+      const hit = await svc.isBlacklisted({
+        phone: "+5511999990020",
+        senderExternalId: null,
+        protocol: "whatsapp",
+        groupExternalId: "grp-x",
+      });
       expect(hit?.kind).toBe("blacklist");
       expect(repo.findMatch).toHaveBeenCalledWith(
         "whatsapp",
         "blacklist",
-        "5511999990020",
+        { phone: "+5511999990020", senderExternalId: null },
         "grp-x"
       );
     });
 
-    it("isBypassed chama findMatch com kind=bypass", async () => {
+    it("isBypassed chama findMatch com kind=bypass por phone", async () => {
       const repo = makeRepo({
         findMatch: mock(async () => makeRow({ kind: "bypass" })),
       });
       const svc = new PhonePoliciesService({ repo });
 
-      const hit = await svc.isBypassed("5511999990021", "whatsapp", "grp-x");
+      const hit = await svc.isBypassed({
+        phone: "+5511999990021",
+        senderExternalId: null,
+        protocol: "whatsapp",
+        groupExternalId: "grp-x",
+      });
       expect(hit?.kind).toBe("bypass");
-      expect(repo.findMatch).toHaveBeenCalledWith("whatsapp", "bypass", "5511999990021", "grp-x");
+      expect(repo.findMatch).toHaveBeenCalledWith(
+        "whatsapp",
+        "bypass",
+        { phone: "+5511999990021", senderExternalId: null },
+        "grp-x"
+      );
     });
 
-    it("retorna null quando phone normalizado é vazio", async () => {
+    it("matcha por senderExternalId quando phone é null", async () => {
+      const repo = makeRepo({
+        findMatch: mock(async () => makeRow({ kind: "blacklist" })),
+      });
+      const svc = new PhonePoliciesService({ repo });
+
+      await svc.isBlacklisted({
+        phone: null,
+        senderExternalId: "1234567890@lid",
+        protocol: "whatsapp",
+        groupExternalId: "grp-x",
+      });
+      expect(repo.findMatch).toHaveBeenCalledWith(
+        "whatsapp",
+        "blacklist",
+        { phone: null, senderExternalId: "1234567890@lid" },
+        "grp-x"
+      );
+    });
+
+    it("retorna null quando ambos identificadores vazios", async () => {
       const repo = makeRepo({
         findMatch: mock(async () => makeRow()),
       });
       const svc = new PhonePoliciesService({ repo });
 
-      const hit = await svc.isBlacklisted("", "whatsapp", "grp-x");
+      const hit = await svc.isBlacklisted({
+        phone: "",
+        senderExternalId: null,
+        protocol: "whatsapp",
+        groupExternalId: "grp-x",
+      });
       expect(hit).toBeNull();
       expect(repo.findMatch).not.toHaveBeenCalled();
     });
@@ -207,7 +275,12 @@ describe("PhonePoliciesService", () => {
       const repo = makeRepo({ findMatch: mock(async () => null) });
       const svc = new PhonePoliciesService({ repo });
 
-      const hit = await svc.isBlacklisted("5511999990022", "whatsapp", "grp-x");
+      const hit = await svc.isBlacklisted({
+        phone: "+5511999990022",
+        senderExternalId: null,
+        protocol: "whatsapp",
+        groupExternalId: "grp-x",
+      });
       expect(hit).toBeNull();
     });
 
@@ -217,11 +290,16 @@ describe("PhonePoliciesService", () => {
       });
       const svc = new PhonePoliciesService({ repo });
 
-      await svc.isBlacklisted("+55 11 99999-0023", "whatsapp", "grp-x");
+      await svc.isBlacklisted({
+        phone: "+55 11 99999-0023",
+        senderExternalId: null,
+        protocol: "whatsapp",
+        groupExternalId: "grp-x",
+      });
       expect(repo.findMatch).toHaveBeenCalledWith(
         "whatsapp",
         "blacklist",
-        "5511999990023",
+        { phone: "+5511999990023", senderExternalId: null },
         "grp-x"
       );
     });

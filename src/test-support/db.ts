@@ -81,7 +81,8 @@ export async function createTestDb(): Promise<{
       "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
       "protocol" "${schemaName}"."messaging_protocol" NOT NULL,
       "kind" "${schemaName}"."phone_policy_kind" NOT NULL,
-      "phone" text NOT NULL,
+      "phone" text,
+      "sender_external_id" text,
       "group_external_id" text,
       "source" "${schemaName}"."phone_policy_source" NOT NULL DEFAULT 'manual',
       "reason" text,
@@ -90,12 +91,22 @@ export async function createTestDb(): Promise<{
       "metadata" jsonb NOT NULL DEFAULT '{}'::jsonb,
       "expires_at" timestamp with time zone,
       "created_at" timestamp with time zone NOT NULL DEFAULT now(),
-      "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now(),
+      CONSTRAINT "phone_policies_identifier_present_${schemaName}"
+        CHECK ("phone" IS NOT NULL OR "sender_external_id" IS NOT NULL)
     );
-    CREATE UNIQUE INDEX "phone_policies_unique_idx_${schemaName}"
-      ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone", COALESCE("group_external_id", ''));
+    CREATE UNIQUE INDEX "phone_policies_unique_phone_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone", COALESCE("group_external_id", ''))
+      WHERE "phone" IS NOT NULL;
+    CREATE UNIQUE INDEX "phone_policies_unique_external_id_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "sender_external_id", COALESCE("group_external_id", ''))
+      WHERE "sender_external_id" IS NOT NULL;
     CREATE INDEX "phone_policies_lookup_idx_${schemaName}"
-      ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone");
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone")
+      WHERE "phone" IS NOT NULL;
+    CREATE INDEX "phone_policies_external_id_lookup_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "sender_external_id")
+      WHERE "sender_external_id" IS NOT NULL;
     CREATE INDEX "phone_policies_expires_at_idx_${schemaName}"
       ON "${schemaName}"."phone_policies" ("expires_at") WHERE "expires_at" IS NOT NULL;
   `);

@@ -20,6 +20,7 @@ async function main() {
     moderationsRepo,
     groupMessagesRepo,
     moderate,
+    enforcement,
   } = await buildDeps();
 
   // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
@@ -39,6 +40,7 @@ async function main() {
     taskService,
     moderationsRepo,
     groupMessagesRepo,
+    enforcement,
     publisher: retryPublisher,
     topology,
     onSuccess: () => {

@@ -15,6 +15,7 @@ export type PhonePoliciesListFilters = {
   protocol?: Protocol;
   kind?: PhonePolicyKind;
   phone?: string;
+  senderExternalId?: string;
   groupExternalId?: string | null;
   source?: PhonePolicySource;
 };
@@ -22,6 +23,11 @@ export type PhonePoliciesListFilters = {
 export type PhonePoliciesPagination = {
   limit: number;
   offset: number;
+};
+
+export type PhonePolicyFindMatchInput = {
+  phone: string | null;
+  senderExternalId: string | null;
 };
 
 export class PhonePoliciesRepository {
@@ -53,15 +59,25 @@ export class PhonePoliciesRepository {
   }
 
   /**
-   * Retorna a política mais específica (group-scoped > global) para o trio
-   * (protocol, kind, phone). Ignora entries expiradas.
+   * Retorna a política mais específica (group-scoped > global) que matcha por
+   * `phone` OU `senderExternalId` (LID). Pelo menos um identificador deve ser
+   * passado — caller valida. Ignora entries expiradas.
    */
   async findMatch(
     protocol: Protocol,
     kind: PhonePolicyKind,
-    phone: string,
+    identifiers: PhonePolicyFindMatchInput,
     groupExternalId: string
   ): Promise<PhonePolicyRow | null> {
+    const identifierClauses: SQL[] = [];
+    if (identifiers.phone !== null) {
+      identifierClauses.push(eq(phonePolicies.phone, identifiers.phone));
+    }
+    if (identifiers.senderExternalId !== null) {
+      identifierClauses.push(eq(phonePolicies.senderExternalId, identifiers.senderExternalId));
+    }
+    if (identifierClauses.length === 0) return null;
+
     const [row] = await this.db
       .select()
       .from(phonePolicies)
@@ -69,7 +85,7 @@ export class PhonePoliciesRepository {
         and(
           eq(phonePolicies.protocol, protocol),
           eq(phonePolicies.kind, kind),
-          eq(phonePolicies.phone, phone),
+          or(...identifierClauses),
           or(
             eq(phonePolicies.groupExternalId, groupExternalId),
             isNull(phonePolicies.groupExternalId)
@@ -77,7 +93,11 @@ export class PhonePoliciesRepository {
           or(isNull(phonePolicies.expiresAt), gt(phonePolicies.expiresAt, new Date()))
         )
       )
-      .orderBy(sql`${phonePolicies.groupExternalId} NULLS LAST`)
+      .orderBy(
+        sql`${phonePolicies.groupExternalId} NULLS LAST`,
+        asc(phonePolicies.createdAt),
+        asc(phonePolicies.id)
+      )
       .limit(1);
     return row ?? null;
   }
@@ -109,6 +129,9 @@ export class PhonePoliciesRepository {
     if (filters.protocol) parts.push(eq(phonePolicies.protocol, filters.protocol));
     if (filters.kind) parts.push(eq(phonePolicies.kind, filters.kind));
     if (filters.phone) parts.push(eq(phonePolicies.phone, filters.phone));
+    if (filters.senderExternalId) {
+      parts.push(eq(phonePolicies.senderExternalId, filters.senderExternalId));
+    }
     if (filters.source) parts.push(eq(phonePolicies.source, filters.source));
     if (filters.groupExternalId === null) {
       parts.push(isNull(phonePolicies.groupExternalId));

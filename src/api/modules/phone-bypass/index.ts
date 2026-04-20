@@ -4,6 +4,7 @@ import {
   ConflictError,
   NotFoundError,
   type PhonePoliciesService,
+  ValidationError,
 } from "../../../services/phone-policies/index.ts";
 import { authPlugin } from "../../shared/auth.ts";
 import { errorResponseSchema } from "../../shared/error-envelope.ts";
@@ -33,10 +34,17 @@ export function phoneBypassModule(deps: PhoneBypassModuleDeps) {
       async ({ body, set }) => {
         try {
           const data = await phonePoliciesService.add({ ...body, kind: "bypass" });
-          logger.info({ id: data.id, phone: data.phone }, "Bypass entry criada via HTTP");
+          logger.info(
+            { id: data.id, phone: data.phone, senderExternalId: data.senderExternalId },
+            "Bypass entry criada via HTTP"
+          );
           set.status = 201;
           return { data };
         } catch (err) {
+          if (err instanceof ValidationError) {
+            set.status = 400;
+            return { error: err.message };
+          }
           if (err instanceof ConflictError) {
             set.status = 409;
             return { error: err.message };
@@ -48,6 +56,7 @@ export function phoneBypassModule(deps: PhoneBypassModuleDeps) {
         body: "phoneBypass.create.body",
         response: {
           201: createResponseSchema,
+          400: errorResponseSchema,
           401: errorResponseSchema,
           409: errorResponseSchema,
         },
@@ -64,6 +73,7 @@ export function phoneBypassModule(deps: PhoneBypassModuleDeps) {
             kind: "bypass",
             protocol: query.protocol,
             phone: query.phone,
+            senderExternalId: query.senderExternalId,
             groupExternalId: query.groupExternalId,
             source: query.source,
           },

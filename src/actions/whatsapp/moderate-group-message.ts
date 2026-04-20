@@ -4,6 +4,7 @@ import type { MessageModerationsRepository } from "../../db/repositories/message
 import type { ModerateGroupMessagePayload } from "../../jobs/types.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
 import { logger } from "../../lib/logger.ts";
+import type { ModerationEnforcementService } from "../../services/moderation-enforcement/index.ts";
 
 export type ModerateFn = (text: string) => Promise<ClassifyResult>;
 
@@ -11,13 +12,14 @@ export interface ModerateGroupMessageDeps {
   moderationsRepo: MessageModerationsRepository;
   groupMessagesRepo: GroupMessagesRepository;
   moderate: ModerateFn;
+  enforcement: ModerationEnforcementService;
 }
 
 export async function moderateGroupMessage(
   payload: ModerateGroupMessagePayload,
   deps: ModerateGroupMessageDeps
 ): Promise<void> {
-  const { moderationsRepo, groupMessagesRepo, moderate } = deps;
+  const { moderationsRepo, groupMessagesRepo, moderate, enforcement } = deps;
 
   const record = await moderationsRepo.findByIdWithMessage(payload.moderationId);
   if (!record) {
@@ -61,6 +63,26 @@ export async function moderateGroupMessage(
     });
 
     await groupMessagesRepo.setModerationStatus(record.message.id, "analyzed");
+
+    // Best-effort: enforcement de blacklist (independente do resultado do LLM).
+    // Falha aqui não deve marcar a moderação como failed.
+    await enforcement
+      .evaluateAndEnforce({
+        protocol: record.message.protocol,
+        groupExternalId: record.message.groupExternalId,
+        senderPhone: record.message.senderPhone,
+        senderExternalId: record.message.senderExternalId,
+        providerInstanceId: record.message.providerInstanceId,
+        externalMessageId: record.message.externalMessageId,
+        moderationId: payload.moderationId,
+        groupMessageId: record.message.id,
+      })
+      .catch((enforcementErr) =>
+        logger.warn(
+          { err: enforcementErr, moderationId: payload.moderationId },
+          "Enforcement falhou — moderação segue analyzed"
+        )
+      );
   } catch (err) {
     // Só persiste falha em erros terminais. Erros transientes ficam com
     // status='pending' para o retry AMQP re-executar a classificação.

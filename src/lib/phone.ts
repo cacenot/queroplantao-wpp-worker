@@ -1,0 +1,32 @@
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+
+/**
+ * Normaliza um telefone para E.164 completo (`+5547997490248`).
+ *
+ * Aceita input com ou sem `+`. Se vier sem `+`, assume que os dígitos iniciais
+ * são o country code (ex.: `"5547997490248"` → `"+5547997490248"`). Retorna
+ * `null` para input vazio, inválido ou não parseável pelo libphonenumber-js.
+ *
+ * Fronteira de entrada no domínio: webhook, HTTP, scripts.
+ */
+export function toE164(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const candidate = trimmed.startsWith("+") ? trimmed : `+${trimmed}`;
+  const parsed = parsePhoneNumberFromString(candidate);
+  if (!parsed?.isValid()) return null;
+  return parsed.number;
+}
+
+/**
+ * Converte E.164 (`+5547997490248`) para o formato dígitos-puros exigido pela
+ * Z-API (`5547997490248`). Null-safe.
+ *
+ * Uso restrito à fronteira de saída Z-API (`src/gateways/whatsapp/zapi/`).
+ */
+export function toZapiDigits(e164: string | null): string | null {
+  if (e164 == null) return null;
+  return e164.startsWith("+") ? e164.slice(1) : e164;
+}

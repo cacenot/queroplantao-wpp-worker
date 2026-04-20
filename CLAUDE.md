@@ -51,6 +51,17 @@ Jobs, webhooks e rotas são discriminated unions Zod. O switch no handler delega
 - **HTTP I/O**: **TypeBox** (`import { t } from "elysia"`) — alimenta OpenAPI automático.
 - Nunca `as Record<string, unknown>` para ler entrada desconhecida — use `z.object({...}).safeParse()`.
 
+## Phone numbers → E.164
+
+Todo número de telefone no **domínio** (DB, payloads de job, métricas, logs) é E.164 completo com `+`: `+5547997490248`. Nunca armazene, compare ou faça hash de phone em outro formato.
+
+- Normalize na **fronteira de entrada** (webhook, HTTP, scripts) com `toE164(raw)` de [src/lib/phone.ts](src/lib/phone.ts). Retorna `null` se inválido.
+- Na **fronteira Z-API** (que exige dígitos puros sem `+`), converta com `toZapiDigits(e164)` — só dentro de `src/gateways/whatsapp/zapi/`.
+- LID (`sender_external_id`, ex.: `"1234567890@lid"`) é identificador separado e não passa por `toE164`.
+- Exceção: `deleteMessagePayload.phone` em [src/jobs/schemas.ts](src/jobs/schemas.ts) é polimórfico (carrega chatId ou phone) e não segue a convenção — ver comentário no arquivo.
+
+Lib de referência: `libphonenumber-js` (cobertura internacional, validação por país).
+
 ## Convenção de tipos
 
 - Use `type` em vez de `interface` em todo o codebase — mais expressivo, sem surpresa de declaration merging, consistente com `z.infer`.

@@ -4,7 +4,8 @@ export const phonePolicyViewSchema = t.Object({
   id: t.String({ format: "uuid" }),
   protocol: t.Union([t.Literal("whatsapp"), t.Literal("telegram")]),
   kind: t.Union([t.Literal("blacklist"), t.Literal("bypass")]),
-  phone: t.String(),
+  phone: t.Nullable(t.String()),
+  senderExternalId: t.Nullable(t.String()),
   groupExternalId: t.Nullable(t.String()),
   source: t.Union([
     t.Literal("manual"),
@@ -23,7 +24,8 @@ export const phonePolicyViewSchema = t.Object({
 
 const createBodySchema = t.Object({
   protocol: t.Union([t.Literal("whatsapp"), t.Literal("telegram")]),
-  phone: t.String({ pattern: "^\\d{8,15}$" }),
+  phone: t.Optional(t.Nullable(t.String({ pattern: "^\\+\\d{8,15}$" }))),
+  senderExternalId: t.Optional(t.Nullable(t.String({ minLength: 1 }))),
   groupExternalId: t.Optional(t.Nullable(t.String({ minLength: 1 }))),
   reason: t.Optional(t.Nullable(t.String())),
   notes: t.Optional(t.Nullable(t.String())),
@@ -33,6 +35,7 @@ const createBodySchema = t.Object({
 const listQuerySchema = t.Object({
   protocol: t.Optional(t.Union([t.Literal("whatsapp"), t.Literal("telegram")])),
   phone: t.Optional(t.String()),
+  senderExternalId: t.Optional(t.String()),
   groupExternalId: t.Optional(t.String()),
   source: t.Optional(
     t.Union([

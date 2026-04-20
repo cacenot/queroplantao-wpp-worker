@@ -8,6 +8,7 @@ import { ModerationConfigRepository } from "../db/repositories/moderation-config
 import { PhonePoliciesRepository } from "../db/repositories/phone-policies-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
+import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
 import { MessagingGroupsCache } from "../services/messaging-groups/messaging-groups-cache.ts";
@@ -16,6 +17,7 @@ import {
   ModerationConfigCache,
   ModerationConfigService,
 } from "../services/moderation-config/index.ts";
+import { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
 import { PhonePoliciesService } from "../services/phone-policies/index.ts";
 import { TaskService } from "../services/task/index.ts";
 
@@ -62,6 +64,15 @@ export async function buildDeps() {
     cache: moderationConfigCache,
   });
 
+  const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
+
+  const enforcement = new ModerationEnforcementService({
+    phonePoliciesService,
+    taskService,
+    redis,
+    logger,
+  });
+
   const groupMessagesService = new GroupMessagesService({
     groupMessagesRepo,
     moderationsRepo,
@@ -69,11 +80,10 @@ export async function buildDeps() {
     messagingGroupsCache,
     taskService,
     moderationConfigService,
+    enforcement,
     ingestionDedupeWindowMs: env.INGESTION_DEDUPE_WINDOW_MS,
     moderationReuseWindowMs: env.MODERATION_REUSE_WINDOW_MS,
   });
-
-  const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
 
   return {
     sql,

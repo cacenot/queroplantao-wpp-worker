@@ -10,7 +10,7 @@ function makeExecutor(value: boolean): WhatsAppExecutor {
 
 const payload: RemoveParticipantPayload = {
   groupId: "120363019502650977-group",
-  phones: ["5511999990001", "5511999990002"],
+  phones: ["+5511999990001", "+5511999990002"],
 };
 
 describe("removeParticipant", () => {

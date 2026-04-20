@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   jsonb,
   pgEnum,
@@ -27,7 +28,9 @@ export const phonePolicies = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     protocol: messagingProtocolEnum("protocol").notNull(),
     kind: phonePolicyKindEnum("kind").notNull(),
-    phone: text("phone").notNull(),
+    // Pelo menos um de phone OU sender_external_id (LID) precisa ser não-null — CHECK abaixo.
+    phone: text("phone"),
+    senderExternalId: text("sender_external_id"),
     // NULL = política global (vale para qualquer grupo monitorado do protocolo)
     groupExternalId: text("group_external_id"),
     source: phonePolicySourceEnum("source").notNull().default("manual"),
@@ -45,13 +48,27 @@ export const phonePolicies = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    uniqueIdx: uniqueIndex("phone_policies_unique_idx").on(
-      table.protocol,
-      table.kind,
-      table.phone,
-      sql`COALESCE(${table.groupExternalId}, '')`
+    identifierPresent: check(
+      "phone_policies_identifier_present",
+      sql`${table.phone} IS NOT NULL OR ${table.senderExternalId} IS NOT NULL`
     ),
-    lookupIdx: index("phone_policies_lookup_idx").on(table.protocol, table.kind, table.phone),
+    uniquePhoneIdx: uniqueIndex("phone_policies_unique_phone_idx")
+      .on(table.protocol, table.kind, table.phone, sql`COALESCE(${table.groupExternalId}, '')`)
+      .where(sql`${table.phone} IS NOT NULL`),
+    uniqueExternalIdIdx: uniqueIndex("phone_policies_unique_external_id_idx")
+      .on(
+        table.protocol,
+        table.kind,
+        table.senderExternalId,
+        sql`COALESCE(${table.groupExternalId}, '')`
+      )
+      .where(sql`${table.senderExternalId} IS NOT NULL`),
+    phoneLookupIdx: index("phone_policies_lookup_idx")
+      .on(table.protocol, table.kind, table.phone)
+      .where(sql`${table.phone} IS NOT NULL`),
+    externalIdLookupIdx: index("phone_policies_external_id_lookup_idx")
+      .on(table.protocol, table.kind, table.senderExternalId)
+      .where(sql`${table.senderExternalId} IS NOT NULL`),
     expiresAtIdx: index("phone_policies_expires_at_idx")
       .on(table.expiresAt)
       .where(sql`${table.expiresAt} IS NOT NULL`),
