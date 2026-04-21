@@ -34,6 +34,13 @@ export class ZApiError extends Error {
   }
 }
 
+export class ZApiTimeoutError extends ZApiError {
+  constructor(url: string, timeoutMs: number) {
+    super(`Z-API timeout após ${timeoutMs}ms: ${url}`, 0, null);
+    this.name = "ZApiTimeoutError";
+  }
+}
+
 /**
  * Implementação Z-API do WhatsAppProvider.
  *
@@ -134,7 +141,20 @@ export class ZApiClient implements WhatsAppProvider {
       headers.set("Content-Type", "application/json");
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const timeoutSignal = AbortSignal.timeout(env.ZAPI_REQUEST_TIMEOUT_MS);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
+
+    let response: Response;
+    try {
+      response = await fetch(url, { ...options, headers, signal });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        throw new ZApiTimeoutError(url, env.ZAPI_REQUEST_TIMEOUT_MS);
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       let body: unknown;

@@ -1,6 +1,33 @@
 import type Redis from "ioredis";
 import { logger } from "../lib/logger.ts";
+import { defineRedisScript } from "../lib/redis-script.ts";
 import type { MessagingProvider, MessagingProviderExecution, ProviderExecutor } from "./types.ts";
+
+declare module "ioredis" {
+  interface RedisCommander<Context> {
+    providerGatewayAcquireLease(
+      availabilityKey: string,
+      ownerKey: string,
+      providerId: string,
+      ownerToken: string,
+      safetyTtlMs: string
+    ): Promise<string | null>;
+    providerGatewayRenewLease(
+      availabilityKey: string,
+      ownerKey: string,
+      providerId: string,
+      ownerToken: string,
+      safetyTtlMs: string
+    ): Promise<string | null>;
+    providerGatewayReleaseLease(
+      availabilityKey: string,
+      ownerKey: string,
+      providerId: string,
+      ownerToken: string,
+      cooldownMs: string
+    ): Promise<string | null>;
+  }
+}
 
 const ACQUIRE_LEASE_SCRIPT = `
 -- provider-gateway:acquire-lease
@@ -252,6 +279,10 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     this.heartbeatIntervalMs = defaultHeartbeatIntervalMs;
     this.pollIntervalMs = pollIntervalMs;
 
+    defineRedisScript(this.redis, "providerGatewayAcquireLease", ACQUIRE_LEASE_SCRIPT, 2);
+    defineRedisScript(this.redis, "providerGatewayRenewLease", RENEW_LEASE_SCRIPT, 2);
+    defineRedisScript(this.redis, "providerGatewayReleaseLease", RELEASE_LEASE_SCRIPT, 2);
+
     const leasedProviders = providerEntries.filter(
       (entry) => entry.execution.kind === "leased"
     ).length;
@@ -392,9 +423,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     execution: ResolvedLeasedExecution,
     ownerToken: string
   ): Promise<boolean> {
-    const result = await this.redis.eval(
-      ACQUIRE_LEASE_SCRIPT,
-      2,
+    const result = await this.redis.providerGatewayAcquireLease(
       this.redisKey,
       entry.ownerKey,
       entry.provider.instance.id,
@@ -410,9 +439,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     execution: ResolvedLeasedExecution,
     ownerToken: string
   ): Promise<boolean> {
-    const result = await this.redis.eval(
-      RENEW_LEASE_SCRIPT,
-      2,
+    const result = await this.redis.providerGatewayRenewLease(
       this.redisKey,
       entry.ownerKey,
       entry.provider.instance.id,
@@ -428,9 +455,7 @@ export class ProviderGateway<T extends MessagingProvider> implements ProviderExe
     ownerToken: string,
     cooldownMs: number
   ): Promise<boolean> {
-    const result = await this.redis.eval(
-      RELEASE_LEASE_SCRIPT,
-      2,
+    const result = await this.redis.providerGatewayReleaseLease(
       this.redisKey,
       entry.ownerKey,
       entry.provider.instance.id,

@@ -6,6 +6,7 @@ import { phoneBypassModule } from "./modules/phone-bypass/index.ts";
 import { providerInstancesModule } from "./modules/provider-instances/index.ts";
 import { tasksModule } from "./modules/tasks/index.ts";
 import { webhooksZapiModule } from "./modules/webhooks-zapi/index.ts";
+import { requestLogPlugin } from "./shared/request-log.ts";
 
 export interface WebhookConfig {
   secret: string;
@@ -14,6 +15,7 @@ export interface WebhookConfig {
 
 export function composeApp(deps: ApiDeps, webhookConfig: WebhookConfig) {
   return new Elysia()
+    .use(requestLogPlugin)
     .use(tasksModule({ taskService: deps.taskService }))
     .use(providerInstancesModule({ instanceService: deps.instanceService }))
     .use(moderationConfigModule({ moderationConfigService: deps.moderationConfigService }))

@@ -34,29 +34,47 @@ class FakeRedis {
     return new FakePipeline(this);
   }
 
-  async eval(
-    script: string,
-    numKeys: number,
-    ...args: Array<string | number>
+  defineCommand(_name: string, _opts: { numberOfKeys: number; lua: string }): void {
+    // no-op — scripts são invocados via métodos nomeados no fake
+  }
+
+  async providerGatewayAcquireLease(
+    availabilityKey: string,
+    ownerKey: string,
+    providerId: string,
+    ownerToken: string,
+    safetyTtlMs: string
   ): Promise<string | null> {
     this.evalCalls += 1;
+    return this.acquireLease(
+      availabilityKey,
+      ownerKey,
+      providerId,
+      ownerToken,
+      Number(safetyTtlMs)
+    );
+  }
 
-    const keys = args.slice(0, numKeys).map(String);
-    const argv = args.slice(numKeys).map(String);
+  async providerGatewayRenewLease(
+    availabilityKey: string,
+    ownerKey: string,
+    providerId: string,
+    ownerToken: string,
+    safetyTtlMs: string
+  ): Promise<string | null> {
+    this.evalCalls += 1;
+    return this.renewLease(availabilityKey, ownerKey, providerId, ownerToken, Number(safetyTtlMs));
+  }
 
-    if (script.includes("provider-gateway:acquire-lease")) {
-      return this.acquireLease(keys[0], keys[1], argv[0], argv[1], Number(argv[2]));
-    }
-
-    if (script.includes("provider-gateway:renew-lease")) {
-      return this.renewLease(keys[0], keys[1], argv[0], argv[1], Number(argv[2]));
-    }
-
-    if (script.includes("provider-gateway:release-lease")) {
-      return this.releaseLease(keys[0], keys[1], argv[0], argv[1], Number(argv[2]));
-    }
-
-    throw new Error("Script Lua desconhecido no teste");
+  async providerGatewayReleaseLease(
+    availabilityKey: string,
+    ownerKey: string,
+    providerId: string,
+    ownerToken: string,
+    cooldownMs: string
+  ): Promise<string | null> {
+    this.evalCalls += 1;
+    return this.releaseLease(availabilityKey, ownerKey, providerId, ownerToken, Number(cooldownMs));
   }
 
   zaddInternal(key: string, ...args: string[]): number {

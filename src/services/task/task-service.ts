@@ -4,15 +4,15 @@ import type { JobSchema } from "../../jobs/schemas.ts";
 import { logger } from "../../lib/logger.ts";
 import type { EnqueueResult, PaginationMeta, TaskListFilters, TaskView } from "./types.ts";
 
-interface Publisher {
+type Publisher = {
   send(envelope: { routingKey: string; durable: boolean }, body: unknown): Promise<void>;
-}
+};
 
-interface TaskServiceOptions {
+type TaskServiceOptions = {
   repo: TaskRepository;
   publisher?: Publisher;
   queueName?: string;
-}
+};
 
 export class TaskService {
   private readonly repo: TaskRepository;
@@ -29,6 +29,8 @@ export class TaskService {
     if (!this.publisher || !this.queueName) {
       throw new Error("TaskService: publisher e queueName são obrigatórios para enqueue");
     }
+    const publisher = this.publisher;
+    const queueName = this.queueName;
 
     const rows = jobs.map((job) => ({
       id: job.id,
@@ -43,19 +45,21 @@ export class TaskService {
     const duplicates = jobs.length - inserted;
     const insertedSet = new Set(ids);
 
-    for (const job of jobs) {
-      if (!insertedSet.has(job.id)) continue;
-
-      try {
-        await this.publisher.send({ routingKey: this.queueName, durable: true }, job);
-        await this.repo.markQueued(job.id);
-      } catch (err) {
-        logger.warn(
-          { err, jobId: job.id },
-          "Falha ao publicar job no AMQP — task fica pending para reaper"
-        );
-      }
-    }
+    await Promise.all(
+      jobs
+        .filter((job) => insertedSet.has(job.id))
+        .map(async (job) => {
+          try {
+            await publisher.send({ routingKey: queueName, durable: true }, job);
+            await this.repo.markQueued(job.id);
+          } catch (err) {
+            logger.warn(
+              { err, jobId: job.id },
+              "Falha ao publicar job no AMQP — task fica pending para reaper"
+            );
+          }
+        })
+    );
 
     return { accepted: inserted, duplicates, ids };
   }

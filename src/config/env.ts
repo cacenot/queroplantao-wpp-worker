@@ -29,6 +29,9 @@ const envSchema = z.object({
   // Intervalo (ms) de renovação da lease durante execução — deve ser < ZAPI_SAFETY_TTL_MS
   ZAPI_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
 
+  // Timeout (ms) por request HTTP Z-API. Timeout é retryable — cai na fila de retry.
+  ZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+
   // Redis — usado para coordenar rate limiting distribuído entre workers
   REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),
 
@@ -85,6 +88,8 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().url().optional(),
   SENTRY_ENVIRONMENT: z.string().min(1).default("production"),
   SENTRY_RELEASE: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+  SENTRY_PROFILES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 });
 
 function parseEnv() {

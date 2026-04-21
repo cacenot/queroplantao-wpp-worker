@@ -13,6 +13,8 @@ process.env.ZAPI_BASE_URL ??= "https://test.example.com";
 process.env.ZAPI_CLIENT_TOKEN ??= "test-client-token";
 process.env.QP_ADMIN_API_URL ??= "https://qp-admin.example.com";
 process.env.QP_ADMIN_API_TOKEN ??= "test-admin-token";
+process.env.QP_ADMIN_API_SERVICE_TOKEN ??= "test-service-token";
+process.env.ZAPI_RECEIVED_WEBHOOK_SECRET ??= "test-webhook-secret";
 
 const { ConsumerStatus } = await import("rabbitmq-client");
 const { NonRetryableError } = await import("../lib/errors.ts");

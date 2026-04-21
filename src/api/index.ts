@@ -1,10 +1,15 @@
 import { env } from "../config/env.ts";
+import { registerCrashHandlers } from "../lib/crash-handlers.ts";
 import { logger } from "../lib/logger.ts";
+import { initSentry } from "../lib/sentry.ts";
 import { buildDeps } from "./deps.ts";
 import { startHttpServer } from "./server.ts";
 
+initSentry();
+
 async function main() {
   logger.info("Iniciando wpp-api");
+  registerCrashHandlers(logger);
 
   const deps = await buildDeps();
 
