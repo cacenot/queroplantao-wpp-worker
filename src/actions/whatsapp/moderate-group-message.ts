@@ -57,8 +57,8 @@ export async function moderateGroupMessage(
       confidence: analysis.confidence,
       action: analysis.action,
       rawResult: buildRawResult(result),
-      promptTokens: null,
-      completionTokens: null,
+      promptTokens: result.usage.promptTokens,
+      completionTokens: result.usage.completionTokens,
       latencyMs: latency,
     });
 

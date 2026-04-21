@@ -35,6 +35,7 @@ function baseResult(overrides: Partial<ClassifyResult> = {}): ClassifyResult {
     modelUsed: "openai/gpt-4o-mini",
     escalated: false,
     primaryAnalysis: null,
+    usage: { promptTokens: 0, completionTokens: 0 },
     ...overrides,
   };
 }
@@ -182,6 +183,7 @@ describe("moderateGroupMessage", () => {
         modelUsed: "openai/gpt-4o",
         escalated: true,
         primaryAnalysis: primary,
+        usage: { promptTokens: 0, completionTokens: 0 },
       } as ClassifyResult)
     );
 

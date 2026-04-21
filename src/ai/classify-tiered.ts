@@ -1,7 +1,12 @@
 import type { LanguageModel } from "ai";
 import { logger } from "../lib/logger.ts";
 import type { Category } from "./categories.ts";
-import { type ClassifyExample, classifyMessage, type MessageAnalysis } from "./moderator.ts";
+import {
+  type ClassifyExample,
+  type ClassifyMessageResult,
+  classifyMessage,
+  type MessageAnalysis,
+} from "./moderator.ts";
 
 export type ClassifyResult = {
   analysis: MessageAnalysis;
@@ -9,6 +14,7 @@ export type ClassifyResult = {
   escalated: boolean;
   /** Análise do modelo primário quando houve escalação; null caso contrário. */
   primaryAnalysis: MessageAnalysis | null;
+  usage: { promptTokens: number; completionTokens: number };
 };
 
 export type ClassifyTieredOptions = {
@@ -27,7 +33,7 @@ type ClassifyFn = (
   model: LanguageModel,
   systemPrompt: string,
   examples: ClassifyExample[]
-) => Promise<MessageAnalysis>;
+) => Promise<ClassifyMessageResult>;
 
 type EscalationTarget = { model: LanguageModel; modelString: string };
 
@@ -48,13 +54,14 @@ export async function classifyTiered(
 ): Promise<ClassifyResult> {
   const primary = await classify(text, opts.primaryModel, opts.systemPrompt, opts.examples);
 
-  const target = resolveEscalationTarget(primary, opts);
+  const target = resolveEscalationTarget(primary.analysis, opts);
   if (!target) {
     return {
-      analysis: primary,
+      analysis: primary.analysis,
       modelUsed: opts.primaryModelString,
       escalated: false,
       primaryAnalysis: null,
+      usage: primary.usage,
     };
   }
 
@@ -63,20 +70,24 @@ export async function classifyTiered(
   logger.info(
     {
       primaryModel: opts.primaryModelString,
-      primaryCategory: primary.category,
-      primaryConfidence: primary.confidence,
+      primaryCategory: primary.analysis.category,
+      primaryConfidence: primary.analysis.confidence,
       escalatedTo: target.modelString,
-      finalCategory: escalated.category,
-      finalConfidence: escalated.confidence,
+      finalCategory: escalated.analysis.category,
+      finalConfidence: escalated.analysis.confidence,
     },
     "moderation escalated"
   );
 
   return {
-    analysis: escalated,
+    analysis: escalated.analysis,
     modelUsed: target.modelString,
     escalated: true,
-    primaryAnalysis: primary,
+    primaryAnalysis: primary.analysis,
+    usage: {
+      promptTokens: primary.usage.promptTokens + escalated.usage.promptTokens,
+      completionTokens: primary.usage.completionTokens + escalated.usage.completionTokens,
+    },
   };
 }
 

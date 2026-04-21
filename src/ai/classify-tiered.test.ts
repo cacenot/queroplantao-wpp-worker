@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { LanguageModel } from "ai";
 import { type ClassifyTieredOptions, classifyTiered } from "./classify-tiered.ts";
-import type { ClassifyExample, MessageAnalysis } from "./moderator.ts";
+import type { ClassifyExample, ClassifyMessageResult, MessageAnalysis } from "./moderator.ts";
 
 const FAKE_PRIMARY = { __tag: "primary" } as unknown as LanguageModel;
 const FAKE_ESCALATION = { __tag: "escalation" } as unknown as LanguageModel;
@@ -15,6 +15,10 @@ function analysis(overrides: Partial<MessageAnalysis> = {}): MessageAnalysis {
     action: "remove",
     ...overrides,
   };
+}
+
+function classifyResult(a: MessageAnalysis): ClassifyMessageResult {
+  return { analysis: a, usage: { promptTokens: 0, completionTokens: 0 } };
 }
 
 function baseOpts(overrides: Partial<ClassifyTieredOptions> = {}): ClassifyTieredOptions {
@@ -34,7 +38,7 @@ function baseOpts(overrides: Partial<ClassifyTieredOptions> = {}): ClassifyTiere
 describe("classifyTiered", () => {
   it("não escala quando confidence >= threshold", async () => {
     const primary = analysis({ confidence: 0.9, category: "product_sales" });
-    const classify = mock(() => Promise.resolve(primary));
+    const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered("msg", baseOpts(), classify);
 
@@ -44,12 +48,13 @@ describe("classifyTiered", () => {
       modelUsed: "openai/gpt-4o-mini",
       escalated: false,
       primaryAnalysis: null,
+      usage: { promptTokens: 0, completionTokens: 0 },
     });
   });
 
   it("não escala quando categoria não está em escalationCategories", async () => {
     const primary = analysis({ confidence: 0.3, category: "clean" });
-    const classify = mock(() => Promise.resolve(primary));
+    const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered("msg", baseOpts(), classify);
 
@@ -60,7 +65,7 @@ describe("classifyTiered", () => {
 
   it("não escala quando escalationModel é null", async () => {
     const primary = analysis({ confidence: 0.3, category: "product_sales" });
-    const classify = mock(() => Promise.resolve(primary));
+    const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered(
       "msg",
@@ -74,7 +79,7 @@ describe("classifyTiered", () => {
 
   it("não escala quando threshold é null (escalação desligada)", async () => {
     const primary = analysis({ confidence: 0.1, category: "product_sales" });
-    const classify = mock(() => Promise.resolve(primary));
+    const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered("msg", baseOpts({ escalationThreshold: null }), classify);
 
@@ -87,7 +92,7 @@ describe("classifyTiered", () => {
     const escalated = analysis({ confidence: 0.95, category: "job_opportunity", action: "allow" });
 
     const classify = mock((_text: string, model: LanguageModel) =>
-      Promise.resolve(model === FAKE_PRIMARY ? primary : escalated)
+      Promise.resolve(classifyResult(model === FAKE_PRIMARY ? primary : escalated))
     );
 
     const result = await classifyTiered("msg borderline", baseOpts(), classify);
@@ -98,6 +103,7 @@ describe("classifyTiered", () => {
       modelUsed: "openai/gpt-4o",
       escalated: true,
       primaryAnalysis: primary,
+      usage: { promptTokens: 0, completionTokens: 0 },
     });
   });
 
@@ -106,7 +112,7 @@ describe("classifyTiered", () => {
     const escalated = analysis({ confidence: 0.9 });
     const classify = mock(
       (_text: string, model: LanguageModel, _systemPrompt: string, _examples: ClassifyExample[]) =>
-        Promise.resolve(model === FAKE_PRIMARY ? primary : escalated)
+        Promise.resolve(classifyResult(model === FAKE_PRIMARY ? primary : escalated))
     );
 
     const examples: ClassifyExample[] = [{ text: "foo", analysis: primary }];

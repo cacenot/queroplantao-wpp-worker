@@ -129,9 +129,16 @@ const moderationService = new ModerationConfigService({
 try {
   const config = await moderationService.getActive();
   const model = createModel(modelString);
-  const result = await classifyMessage(text, model, config.systemPrompt, config.examples);
+  const { analysis } = await classifyMessage(text, model, config.systemPrompt, config.examples);
 
-  printResult(text, modelString, result.action, result.category, result.confidence, result.reason);
+  printResult(
+    text,
+    modelString,
+    analysis.action,
+    analysis.category,
+    analysis.confidence,
+    analysis.reason
+  );
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`\n  ${c.red}${bold("Erro:")}${c.reset} ${message}\n`);

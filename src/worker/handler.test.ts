@@ -110,6 +110,7 @@ function makeModerate(result?: ClassifyResult) {
     modelUsed: "openai/gpt-4o-mini",
     escalated: false,
     primaryAnalysis: null,
+    usage: { promptTokens: 0, completionTokens: 0 },
   };
   return mock(() => Promise.resolve(result ?? defaultResult));
 }

@@ -568,6 +568,118 @@ https://chat.whatsapp.com/E9TQ0pzO38c1bK3I12U2hz?mode=gi_t
     },
   },
   {
+    text: `*Ana Carine :*
+📢 Estamos Contratando!
+A ContaDoc está buscando profissionais para integrar nossas equipes hospitalares. Temos oportunidades abertas nas seguintes especialidades:
+• Emergência;
+• Unidade de Internação;
+• Terapia Intensiva;
+• Ginecologia Obstetrícia;
+• Ortopedia;
+• Pediatria.
+Oferecemos suporte completo e estruturamos toda a burocracia necessária para a sua atuação hospitalar, permitindo que você foque no que realmente importa: o cuidado ao paciente.
+🔗 Link para inscrição: https://contadoc-1.rds.land/01-contadoc-contratacao-landing-page`,
+    analysis: {
+      reason:
+        "A mensagem divulga oportunidades de vagas em diversas especialidades mas não informa local, valores, datas e ainda tem um link para uma plataforma externa.",
+      partner: null,
+      category: "competitor_promotion",
+      confidence: 1,
+      action: "remove",
+    },
+  },
+  {
+    text: `* *DERMATOLOGIA👩🏻‍⚕️*
+
+🏥 *SEDE*
+📍 _Alameda Santos, 2313 - 3° andar (esquina com a Haddock Lobo)_
+
+        *\`DERMATOLOGIA\`*
+
+
+
+📆 08/04 QUARTA FEIRA
+⏰ 08:00 as 17:00
+
+📆 15/04 QUARTA FEIRA
+⏰ 08:00 as 17:00
+
+
+*✓ CERTIFICADO COM RQE*
+*✓PAGAMENTO A VISTA OU FOLHA*
+
+> Nos siga nas redes sociais
+📷 instagram.com/medtrustservicosmedicos
+
+🔗 medtrust.com.br
+
+\`Entre em contato!\`
+📲https://wa.me/message/GSQS5DHJT527K1
+Conta comercial
+Medtrust Serviços Médicos
+https://wa.me/message/GSQS5DHJT527K1`,
+    analysis: {
+      reason:
+        "Anúncio de vagas de dermatologia com certificação e pagamento flexível, com links externos de contato e redes sociais, vaga legítima.",
+      partner: null,
+      category: "job_opportunity",
+      confidence: 0.98,
+      action: "allow",
+    },
+  },
+  {
+    text: `* *DERMATOLOGIA👩🏻‍⚕️*
+
+🏥 *SEDE*
+📍 _Alameda Santos, 2313 - 3° andar (esquina com a Haddock Lobo)_
+
+        *\`DERMATOLOGIA\`*
+
+📆 25/03 QUARTA FEIRA
+⏰ 08:00 as 17:00
+
+📆 08/04 QUARTA FEIRA
+⏰ 08:00 as 17:00
+
+📆 15/04 QUARTA FEIRA
+⏰ 08:00 as 17:00
+
+
+*✓ CERTIFICADO COM RQE*
+*✓PAGAMENTO A VISTA OU FOLHA*
+
+> Nos siga nas redes sociais
+📷 instagram.com/medtrustservicosmedicos
+
+🔗 medtrust.com.br
+
+\`Entre em contato!\`
+
+☎️📞📞
+https://wa.me/5511913098896
+https://wa.me/5511913098896
+wa.me`,
+    analysis: {
+      reason:
+        "Anúncio de vaga com local, datas, requisitos e forma de pagamento, vaga legítima; links para redes sociais são permitidos quando há vaga real.",
+      partner: null,
+      category: "job_opportunity",
+      confidence: 1,
+      action: "allow",
+    },
+  },
+  {
+    text: `📢 *DOAÇÃO ULTRASSOM PORTÁTIL* Prezados colegas, Meu nome é Bruna, sou médica cirurgiã. Recentemente, adquiri um aparelho de ultrassonografia portátil em um congresso brasileiro da área. Como já possuo um equipamento mais avançado, decidi disponibilizá-lo em doação para um colega que possa fazer bom uso do recurso na prática clínica. Acredito que o acesso a essa tecnologia pode contribuir bastante na assistência aos pacientes e na ampliação das possibilidades diagnósticas. 📩 Caso tenha interesse, entre em contato comigo no privado. Atenciosamente, Dra. Bruna`,
+    analysis: {
+      reason:
+        "A mensagem fala sobre doação de equipamento e pede para chamar no privado — padrão típico de scam. Grupos não são feitos para doações.",
+      partner: null,
+      category: "scam",
+      confidence: 1,
+      action: "remove",
+    },
+  },
+  {
     text: `💉 *VAGAS PARA ANESTESIOLOGIA - VÁRIAS REGIÕES - SP* 💉
 
 💎 *MedPlantões - Captação Médica* 💎

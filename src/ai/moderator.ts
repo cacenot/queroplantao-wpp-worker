@@ -34,15 +34,20 @@ function renderExamples(examples: ClassifyExample[]): string {
   return `\n\n═══ EXEMPLOS ═══\n${blocks.join("\n\n")}`;
 }
 
+export type ClassifyMessageResult = {
+  analysis: MessageAnalysis;
+  usage: { promptTokens: number; completionTokens: number };
+};
+
 export async function classifyMessage(
   text: string,
   model: LanguageModel,
   systemPrompt: string,
   examples: ClassifyExample[] = []
-): Promise<MessageAnalysis> {
+): Promise<ClassifyMessageResult> {
   const system = systemPrompt + renderExamples(examples);
 
-  const { output } = await generateText({
+  const { output, usage } = await generateText({
     model,
     system,
     prompt: text,
@@ -53,5 +58,8 @@ export async function classifyMessage(
     throw new Error("LLM não retornou um objeto estruturado válido");
   }
 
-  return output;
+  return {
+    analysis: output,
+    usage: { promptTokens: usage.inputTokens ?? 0, completionTokens: usage.outputTokens ?? 0 },
+  };
 }

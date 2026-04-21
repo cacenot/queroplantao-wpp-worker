@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { createModel } from "../../ai/model.ts";
-import { classifyMessage } from "../../ai/moderator.ts";
+import { classifyTiered } from "../../ai/classify-tiered.ts";
+import { createModelRegistry } from "../../ai/model-registry.ts";
 import { env } from "../../config/env.ts";
 import { createDbConnection, createDrizzleDb } from "../../db/client.ts";
 import { ModerationConfigRepository } from "../../db/repositories/moderation-config-repository.ts";
@@ -39,15 +39,31 @@ const cyan = (s: string) => `${c.cyan}${s}${c.reset}`;
 
 const BAR_WIDTH = 30;
 
-function renderProgress(done: number, total: number, errors: number) {
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function renderProgress(
+  done: number,
+  total: number,
+  errors: number,
+  promptTokens: number,
+  completionTokens: number
+) {
   const pct = total === 0 ? 1 : done / total;
   const filled = Math.round(pct * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
   const bar = `${c.cyan}${"█".repeat(filled)}${c.dim}${"░".repeat(empty)}${c.reset}`;
   const pctStr = bold(`${String(Math.round(pct * 100)).padStart(3)}%`);
+  const tokStr =
+    promptTokens + completionTokens > 0
+      ? dim(`  ↑${formatTokens(promptTokens)} ↓${formatTokens(completionTokens)} tok`)
+      : "";
   const errStr = errors > 0 ? red(`  ${errors} erro(s)`) : "";
   process.stdout.write(
-    `\r  ${bar} ${pctStr}  ${dim(String(done).padStart(String(total).length))}/${dim(String(total))}${errStr}   `
+    `\r  ${bar} ${pctStr}  ${dim(String(done).padStart(String(total).length))}/${dim(String(total))}${tokStr}${errStr}   `
   );
 }
 
@@ -124,6 +140,8 @@ interface Row {
   category: string;
   confidence: string;
   reason: string;
+  modelUsed: string;
+  escalated: string;
   error: string;
 }
 
@@ -142,7 +160,6 @@ if (args.length === 0) {
 }
 
 const csvPath = args[0] as string;
-const modelString = process.env.MODERATION_MODEL ?? "openai/gpt-4o-mini";
 
 // Read input
 let inputContent: string;
@@ -167,19 +184,6 @@ await mkdir(outputDir, { recursive: true });
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const outputPath = join(outputDir, `output_${timestamp}.csv`);
 
-// Print header
-console.log();
-console.log(`  ${cyan(bold("Quero Plantão — Bulk Moderation"))}`);
-console.log(`  ${"─".repeat(50)}`);
-console.log(`  ${dim("Modelo  ")} ${cyan(modelString)}`);
-console.log(`  ${dim("Input   ")} ${csvPath}`);
-console.log(`  ${dim("Total   ")} ${bold(String(messages.length))} mensagens`);
-console.log(`  ${dim("Output  ")} ${outputPath}`);
-console.log(`  ${"─".repeat(50)}`);
-console.log();
-
-const model = createModel(modelString);
-
 const redis = createRedisConnection(env.REDIS_URL);
 const sql = createDbConnection();
 
@@ -196,13 +200,32 @@ try {
     cache: moderationCache,
   });
   const config = await moderationService.getActive();
+  const modelRegistry = createModelRegistry();
+
+  // Print header
+  console.log();
+  console.log(`  ${cyan(bold("Quero Plantão — Bulk Moderation"))}`);
+  console.log(`  ${"─".repeat(50)}`);
+  console.log(`  ${dim("Primary ")} ${cyan(config.primaryModel)}`);
+  if (config.escalationModel) {
+    console.log(
+      `  ${dim("Escalate")} ${cyan(config.escalationModel)} (threshold ${config.escalationThreshold})`
+    );
+  }
+  console.log(`  ${dim("Input   ")} ${csvPath}`);
+  console.log(`  ${dim("Total   ")} ${bold(String(messages.length))} mensagens`);
+  console.log(`  ${dim("Output  ")} ${outputPath}`);
+  console.log(`  ${"─".repeat(50)}`);
+  console.log();
 
   // Process in batches of CONCURRENCY
   const rows: Row[] = new Array(messages.length);
   let done = 0;
   let errors = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
 
-  renderProgress(0, messages.length, 0);
+  renderProgress(0, messages.length, 0, 0, 0);
 
   for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY) {
     const batchEnd = Math.min(batchStart + CONCURRENCY, messages.length);
@@ -212,19 +235,29 @@ try {
       batch.map(async (message, i) => {
         const idx = batchStart + i;
         try {
-          const result = await classifyMessage(
-            message,
-            model,
-            config.systemPrompt,
-            config.examples
-          );
+          const result = await classifyTiered(message, {
+            primaryModel: modelRegistry.getModel(config.primaryModel),
+            primaryModelString: config.primaryModel,
+            escalationModel: config.escalationModel
+              ? modelRegistry.getModel(config.escalationModel)
+              : null,
+            escalationModelString: config.escalationModel,
+            escalationThreshold: config.escalationThreshold,
+            escalationCategories: config.escalationCategories,
+            systemPrompt: config.systemPrompt,
+            examples: config.examples,
+          });
+          totalPromptTokens += result.usage.promptTokens;
+          totalCompletionTokens += result.usage.completionTokens;
           rows[idx] = {
             message,
-            action: result.action,
-            partner: result.partner ?? "",
-            category: result.category,
-            confidence: result.confidence.toFixed(2),
-            reason: result.reason,
+            action: result.analysis.action,
+            partner: result.analysis.partner ?? "",
+            category: result.analysis.category,
+            confidence: result.analysis.confidence.toFixed(2),
+            reason: result.analysis.reason,
+            modelUsed: result.modelUsed,
+            escalated: result.escalated ? "true" : "false",
             error: "",
           };
         } catch (err) {
@@ -236,21 +269,43 @@ try {
             category: "",
             confidence: "",
             reason: "",
+            modelUsed: "",
+            escalated: "",
             error: err instanceof Error ? err.message : String(err),
           };
         }
         done++;
-        renderProgress(done, messages.length, errors);
+        renderProgress(done, messages.length, errors, totalPromptTokens, totalCompletionTokens);
       })
     );
   }
 
   // Write CSV output
-  const headers = ["message", "action", "partner", "category", "confidence", "reason", "error"];
+  const headers = [
+    "message",
+    "action",
+    "partner",
+    "category",
+    "confidence",
+    "reason",
+    "model_used",
+    "escalated",
+    "error",
+  ];
   const csvLines = [
     headers.join(","),
     ...rows.map((row) =>
-      [row.message, row.action, row.partner, row.category, row.confidence, row.reason, row.error]
+      [
+        row.message,
+        row.action,
+        row.partner,
+        row.category,
+        row.confidence,
+        row.reason,
+        row.modelUsed,
+        row.escalated,
+        row.error,
+      ]
         .map(escapeCsvField)
         .join(",")
     ),
@@ -284,6 +339,10 @@ try {
   if (errors > 0) {
     console.log(`  ${red("❌ erro")}    ${bold(String(errors).padStart(4))}`);
   }
+  console.log();
+  console.log(
+    `  ${dim("Tokens  ")} ↑ ${bold(formatTokens(totalPromptTokens))} prompt  ↓ ${bold(formatTokens(totalCompletionTokens))} completion  ${dim(`(total ${formatTokens(totalPromptTokens + totalCompletionTokens)})`)}`
+  );
   console.log();
   console.log(`  ${dim("Salvo em")} ${c.white}${outputPath}${c.reset}`);
   console.log();
