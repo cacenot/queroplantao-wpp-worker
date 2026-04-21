@@ -1,76 +1,44 @@
 import { z } from "zod";
 
 const envSchema = z.object({
+  // ─── DATABASE ────────────────────────────────────────────────────────────────
   DATABASE_URL: z.string().min(1, { message: "DATABASE_URL é obrigatória" }),
 
+  // ─── AMQP ────────────────────────────────────────────────────────────────────
   AMQP_URL: z.string().url({ message: "AMQP_URL deve ser uma URL válida" }),
   AMQP_QUEUE: z.string().min(1),
+  // Mensagens processadas simultaneamente antes do ACK
   AMQP_PREFETCH: z.coerce.number().int().positive().default(5),
-
-  // TTL (ms) da fila de retry. Todo retry espera este delay antes de voltar à fila principal.
+  // TTL (ms) da fila de retry — delay antes de cada re-tentativa
   AMQP_RETRY_DELAY_MS: z.coerce.number().int().positive().default(120000),
-
   // Número máximo de retries antes do DLQ. Total de execuções = maxRetries + 1.
   AMQP_RETRY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
-
-  // Nome da fila de mensagens mortas. Default: ${AMQP_QUEUE}.dlq
+  // Opcional — default: ${AMQP_QUEUE}.dlq
   AMQP_DLQ_NAME: z.string().optional(),
 
-  ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),
-  ZAPI_CLIENT_TOKEN: z.string().min(1, { message: "ZAPI_CLIENT_TOKEN é obrigatória" }),
-
-  // Delay aleatório (ms) entre requisições Z-API — cria jitter para evitar rajadas
-  ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(2500),
-  ZAPI_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(5200),
-
-  // TTL (ms) da lease distribuída por provider — protege contra crashes do worker
-  ZAPI_SAFETY_TTL_MS: z.coerce.number().int().positive().default(30_000),
-
-  // Intervalo (ms) de renovação da lease durante execução — deve ser < ZAPI_SAFETY_TTL_MS
-  ZAPI_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
-
-  // Timeout (ms) por request HTTP Z-API. Timeout é retryable — cai na fila de retry.
-  ZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
-
-  // Redis — usado para coordenar rate limiting distribuído entre workers
+  // ─── REDIS ───────────────────────────────────────────────────────────────────
   REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),
 
-  // Servidor HTTP para receber tasks via API (0 = porta aleatória, útil em testes)
+  // ─── HTTP / WORKER ───────────────────────────────────────────────────────────
+  // 0 = porta aleatória, útil em testes
   HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),
   HTTP_API_KEY: z.string().min(1, { message: "HTTP_API_KEY é obrigatória" }),
-
-  // Porta do health check do worker (separada da API)
   WORKER_HEALTH_PORT: z.coerce.number().int().nonnegative().default(3001),
 
-  // QP Admin API — usada para persistir resultados de análise de mensagens
-  QP_ADMIN_API_URL: z.string().url({ message: "QP_ADMIN_API_URL deve ser uma URL válida" }),
-  QP_ADMIN_API_TOKEN: z.string().min(1, { message: "QP_ADMIN_API_TOKEN é obrigatória" }),
-  QP_ADMIN_API_SERVICE_TOKEN: z
-    .string()
-    .min(1, { message: "QP_ADMIN_API_SERVICE_TOKEN é obrigatória" }),
+  // ─── Z-API ───────────────────────────────────────────────────────────────────
+  ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),
+  ZAPI_CLIENT_TOKEN: z.string().min(1, { message: "ZAPI_CLIENT_TOKEN é obrigatória" }),
+  // Delay aleatório (ms) entre requisições — cria jitter para evitar rajadas
+  ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(2500),
+  ZAPI_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(5200),
+  // TTL (ms) da lease distribuída por provider — protege contra crashes do worker
+  ZAPI_SAFETY_TTL_MS: z.coerce.number().int().positive().default(30_000),
+  // Intervalo (ms) de renovação da lease — deve ser < ZAPI_SAFETY_TTL_MS
+  ZAPI_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
+  // Timeout (ms) por request HTTP — timeout é retryable (cai na fila de retry)
+  ZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 
-  // AI — chaves de API (opcionais — apenas a do provider ativo precisa estar definida)
-  OPENAI_API_KEY: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
-
-  // Janela (ms) do bucket de dedupe de ingestão. Colapsa a mesma mensagem em várias instâncias Z-API.
-  INGESTION_DEDUPE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
-
-  // Janela (ms) de reuso de moderação por contentHash + moderationVersion. Default: 15 dias.
-  MODERATION_REUSE_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(15 * 24 * 60 * 60 * 1000),
-
-  // Prefixo das chaves Redis do cache de grupos monitorados (ex.: `${prefix}:whatsapp`).
-  MESSAGING_GROUPS_REDIS_PREFIX: z.string().min(1).default("messaging_groups"),
-
-  // Prefixo das chaves Redis do cache da config ativa de moderação.
-  MODERATION_CONFIG_REDIS_PREFIX: z.string().min(1).default("moderation_config"),
-
-  // Webhook público Z-API `on-message-received`.
+  // ─── WEBHOOKS ────────────────────────────────────────────────────────────────
   ZAPI_RECEIVED_WEBHOOK_ENABLED: z
     .string()
     .default("true")
@@ -79,15 +47,43 @@ const envSchema = z.object({
     .string()
     .min(1, { message: "ZAPI_RECEIVED_WEBHOOK_SECRET é obrigatória" }),
 
-  // spam-watcher: lista de filtros separados por vírgula (opcional — só usado pelo script)
-  SPAM_FILTERS: z.string().optional(),
-  // spam-watcher: intervalo entre execuções em ms (default: 2 min)
-  SPAM_INTERVAL_MS: z.coerce.number().int().positive().default(120000),
+  // ─── QP ADMIN API ────────────────────────────────────────────────────────────
+  QP_ADMIN_API_URL: z.string().url({ message: "QP_ADMIN_API_URL deve ser uma URL válida" }),
+  QP_ADMIN_API_TOKEN: z.string().min(1, { message: "QP_ADMIN_API_TOKEN é obrigatória" }),
+  QP_ADMIN_API_SERVICE_TOKEN: z
+    .string()
+    .min(1, { message: "QP_ADMIN_API_SERVICE_TOKEN é obrigatória" }),
 
-  // seed-initial: JSON stringificado com provider instances + moderation config (opcional — só usado pelo script de seed)
+  // ─── AI ──────────────────────────────────────────────────────────────────────
+  // Lidas implicitamente pelo Vercel AI SDK — apenas o provider ativo precisa estar definido
+  OPENAI_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+
+  // ─── MODERAÇÃO ───────────────────────────────────────────────────────────────
+  // Janela (ms) do bucket de dedupe de ingestão — colapsa a mesma mensagem em várias instâncias Z-API
+  INGESTION_DEDUPE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  // Janela (ms) de reuso por contentHash + moderationVersion — default: 15 dias
+  MODERATION_REUSE_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 24 * 60 * 60 * 1000),
+  // Prefixo das chaves Redis do cache de grupos monitorados (ex.: `${prefix}:whatsapp`)
+  MESSAGING_GROUPS_REDIS_PREFIX: z.string().min(1).default("messaging_groups"),
+  // Prefixo das chaves Redis do cache da config ativa de moderação
+  MODERATION_CONFIG_REDIS_PREFIX: z.string().min(1).default("moderation_config"),
+
+  // ─── SCRIPTS ─────────────────────────────────────────────────────────────────
+  // spam-watcher: lista de filtros separados por vírgula
+  SPAM_FILTERS: z.string().optional(),
+  // spam-watcher: intervalo entre execuções (ms)
+  SPAM_INTERVAL_MS: z.coerce.number().int().positive().default(120000),
+  // seed-initial: JSON com provider instances + moderation config (omitir pula criação de instâncias)
   SEED_DATA_JSON: z.string().optional(),
 
-  // Sentry — opcional. Sem DSN, init vira no-op (dev local não envia).
+  // ─── SENTRY ──────────────────────────────────────────────────────────────────
+  // Sem DSN, init vira no-op (dev local não envia)
   SENTRY_DSN: z.string().url().optional(),
   SENTRY_ENVIRONMENT: z.string().min(1).default("production"),
   SENTRY_RELEASE: z.string().optional(),
