@@ -1,2 +1,0 @@
-UPDATE "messaging_provider_instances" SET "redis_key" = 'messaging:whatsapp' WHERE "redis_key" IS NULL;--> statement-breakpoint
-ALTER TABLE "messaging_provider_instances" ALTER COLUMN "redis_key" SET NOT NULL;
