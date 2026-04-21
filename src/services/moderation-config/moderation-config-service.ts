@@ -26,6 +26,28 @@ export class ModerationConfigService {
     return this.deps.cache.getActive();
   }
 
+  /**
+   * Gera a próxima version no padrão `yyyy-mm-v{N}`, onde N incrementa por mês.
+   * Padrão canônico do projeto — usado pelo seed e pela API admin quando o
+   * operador não passa version explícita. Sufixos não-numéricos (ex.: rollback,
+   * hotfix) são ignorados no cálculo do próximo N.
+   */
+  async nextVersion(now: Date = new Date()): Promise<string> {
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const prefix = `${yyyy}-${mm}-v`;
+    const existing = await this.deps.repo.listVersionsByPrefix(prefix);
+    let maxN = 0;
+    for (const version of existing) {
+      const suffix = version.slice(prefix.length);
+      const n = Number(suffix);
+      if (Number.isInteger(n) && n > 0 && n > maxN) {
+        maxN = n;
+      }
+    }
+    return `${prefix}${maxN + 1}`;
+  }
+
   async findByVersion(version: string): Promise<ModerationConfig | null> {
     const row = await this.deps.repo.findByVersion(version);
     return row ? toModerationConfig(row) : null;
@@ -37,15 +59,16 @@ export class ModerationConfigService {
   }
 
   async createConfig(input: CreateModerationConfigInput): Promise<ModerationConfig> {
-    if (await this.deps.repo.existsByVersion(input.version)) {
-      throw new ConflictError(`Version "${input.version}" já existe`);
+    const version = input.version ?? (await this.nextVersion());
+    if (await this.deps.repo.existsByVersion(version)) {
+      throw new ConflictError(`Version "${version}" já existe`);
     }
 
     const contentHash = hashConfig(input);
-    await this.warnIfContentHashReused(contentHash, input.version);
+    await this.warnIfContentHashReused(contentHash, version);
 
     const row: NewModerationConfigRow = {
-      version: input.version,
+      version,
       primaryModel: input.primaryModel,
       escalationModel: input.escalationModel ?? null,
       escalationThreshold:

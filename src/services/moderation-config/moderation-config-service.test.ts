@@ -28,6 +28,7 @@ type FakeRepo = {
   findActive: ReturnType<typeof mock>;
   findByVersion: ReturnType<typeof mock>;
   listHistory: ReturnType<typeof mock>;
+  listVersionsByPrefix: ReturnType<typeof mock>;
   insertAndActivate: ReturnType<typeof mock>;
   activateByVersion: ReturnType<typeof mock>;
   existsByVersion: ReturnType<typeof mock>;
@@ -39,6 +40,7 @@ function makeRepo(overrides: Partial<FakeRepo> = {}): ModerationConfigRepository
     findActive: mock(async () => null),
     findByVersion: mock(async () => null),
     listHistory: mock(async () => []),
+    listVersionsByPrefix: mock(async (_prefix: string) => [] as string[]),
     insertAndActivate: mock(async (row) => makeRow({ ...row, isActive: true })),
     activateByVersion: mock(async (_v: string) => null),
     existsByVersion: mock(async () => false),
@@ -187,6 +189,86 @@ describe("ModerationConfigService", () => {
       const svc = new ModerationConfigService({ repo: makeRepo(), cache });
       await svc.getActive().catch(() => {});
       expect(cache.getActive).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("nextVersion", () => {
+    it("retorna v1 quando não há versões no mês", async () => {
+      const svc = new ModerationConfigService({ repo: makeRepo(), cache: makeCache() });
+      const v = await svc.nextVersion(new Date("2026-04-15T10:00:00Z"));
+      expect(v).toBe("2026-04-v1");
+    });
+
+    it("incrementa sobre o maior sufixo numérico existente", async () => {
+      const repo = makeRepo({
+        listVersionsByPrefix: mock(async () => [
+          "2026-04-v1",
+          "2026-04-v2",
+          "2026-04-v5",
+          "2026-04-v3",
+        ]),
+      });
+      const svc = new ModerationConfigService({ repo, cache: makeCache() });
+      const v = await svc.nextVersion(new Date("2026-04-15T10:00:00Z"));
+      expect(v).toBe("2026-04-v6");
+    });
+
+    it("ignora sufixos não-numéricos no cálculo", async () => {
+      const repo = makeRepo({
+        listVersionsByPrefix: mock(async () => [
+          "2026-04-v1",
+          "2026-04-v2-rollback",
+          "2026-04-v3-hotfix",
+        ]),
+      });
+      const svc = new ModerationConfigService({ repo, cache: makeCache() });
+      const v = await svc.nextVersion(new Date("2026-04-15T10:00:00Z"));
+      expect(v).toBe("2026-04-v2");
+    });
+
+    it("formata mês com zero-pad", async () => {
+      const svc = new ModerationConfigService({ repo: makeRepo(), cache: makeCache() });
+      const v = await svc.nextVersion(new Date("2026-01-05T10:00:00Z"));
+      expect(v).toMatch(/^2026-01-v1$/);
+    });
+
+    it("consulta o prefixo do mês corrente", async () => {
+      const listSpy = mock(async (_prefix: string) => [] as string[]);
+      const repo = makeRepo({ listVersionsByPrefix: listSpy });
+      const svc = new ModerationConfigService({ repo, cache: makeCache() });
+      await svc.nextVersion(new Date("2026-07-20T10:00:00Z"));
+      expect(listSpy).toHaveBeenCalledWith("2026-07-v");
+    });
+  });
+
+  describe("createConfig — version auto-gerada", () => {
+    it("usa nextVersion() quando version é omitida", async () => {
+      const repo = makeRepo({
+        listVersionsByPrefix: mock(async () => ["2026-04-v1"]),
+        insertAndActivate: mock(async (row) => makeRow({ ...row, isActive: true })),
+      });
+      const svc = new ModerationConfigService({ repo, cache: makeCache() });
+
+      const result = await svc.createConfig({
+        primaryModel: "openai/gpt-4o-mini",
+        systemPrompt: "sys",
+      });
+
+      // Sufixo é sempre `yyyy-mm-v{N}` — não travamos no mês atual real.
+      expect(result.version).toMatch(/^\d{4}-\d{2}-v\d+$/);
+    });
+
+    it("respeita version explícita quando fornecida", async () => {
+      const repo = makeRepo();
+      const svc = new ModerationConfigService({ repo, cache: makeCache() });
+
+      const result = await svc.createConfig({
+        version: "custom-v42",
+        primaryModel: "openai/gpt-4o-mini",
+        systemPrompt: "sys",
+      });
+
+      expect(result.version).toBe("custom-v42");
     });
   });
 

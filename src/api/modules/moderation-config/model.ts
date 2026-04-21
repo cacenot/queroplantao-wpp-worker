@@ -50,7 +50,8 @@ export const moderationConfigViewSchema = t.Object({
 });
 
 const createBodySchema = t.Object({
-  version: t.String({ minLength: 1, maxLength: 100 }),
+  // Omitir → auto-gerado pelo service no padrão `yyyy-mm-v{N}`.
+  version: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
   primaryModel: t.String({ minLength: 1 }),
   escalationModel: t.Optional(t.Nullable(t.String({ minLength: 1 }))),
   escalationThreshold: t.Optional(t.Nullable(t.Number({ minimum: 0, maximum: 1 }))),

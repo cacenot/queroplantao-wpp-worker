@@ -84,6 +84,9 @@ const envSchema = z.object({
   // spam-watcher: intervalo entre execuções em ms (default: 2 min)
   SPAM_INTERVAL_MS: z.coerce.number().int().positive().default(120000),
 
+  // seed-initial: JSON stringificado com provider instances + moderation config (opcional — só usado pelo script de seed)
+  SEED_DATA_JSON: z.string().optional(),
+
   // Sentry — opcional. Sem DSN, init vira no-op (dev local não envia).
   SENTRY_DSN: z.string().url().optional(),
   SENTRY_ENVIRONMENT: z.string().min(1).default("production"),

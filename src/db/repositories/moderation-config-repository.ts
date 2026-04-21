@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, like, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import {
   type ModerationConfigRow,
@@ -84,6 +84,14 @@ export class ModerationConfigRepository {
       .returning();
 
     return updated ?? null;
+  }
+
+  async listVersionsByPrefix(prefix: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ version: moderationConfigs.version })
+      .from(moderationConfigs)
+      .where(like(moderationConfigs.version, `${prefix}%`));
+    return rows.map((r) => r.version);
   }
 
   async existsByVersion(version: string, tx?: Db): Promise<boolean> {

@@ -163,6 +163,27 @@ describe("POST /admin/moderation/config", () => {
     expect(body.data.version).toBe("2026-04-new");
   });
 
+  it("201 sem version — delega ao service para auto-gerar", async () => {
+    const captured: { input?: CreateModerationConfigInput } = {};
+    app = buildApp({
+      createConfig: async (input) => {
+        captured.input = input;
+        return makeConfig({ version: "2026-04-v7" });
+      },
+    });
+    const res = await makeRequest(app, "/admin/moderation/config", {
+      method: "POST",
+      body: JSON.stringify({
+        primaryModel: "openai/gpt-4o-mini",
+        systemPrompt: "você é um moderador...",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as OkResp<ModerationConfig>;
+    expect(body.data.version).toBe("2026-04-v7");
+    expect(captured.input?.version).toBeUndefined();
+  });
+
   it("422 quando systemPrompt falta", async () => {
     const res = await makeRequest(app, "/admin/moderation/config", {
       method: "POST",

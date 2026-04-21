@@ -21,7 +21,8 @@ export type ModerationConfig = {
 };
 
 export type CreateModerationConfigInput = {
-  version: string;
+  /** Omitir para auto-gerar via `service.nextVersion()` no padrão `yyyy-mm-v{N}`. */
+  version?: string;
   primaryModel: string;
   escalationModel?: string | null;
   escalationThreshold?: number | null;

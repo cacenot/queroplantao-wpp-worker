@@ -2,6 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createModel } from "../../ai/model.ts";
 import { classifyMessage } from "../../ai/moderator.ts";
+import { env } from "../../config/env.ts";
+import { createDbConnection, createDrizzleDb } from "../../db/client.ts";
+import { ModerationConfigRepository } from "../../db/repositories/moderation-config-repository.ts";
+import { createRedisConnection } from "../../lib/redis.ts";
+import {
+  ModerationConfigCache,
+  ModerationConfigService,
+} from "../../services/moderation-config/index.ts";
 
 // ---------------------------------------------------------------------------
 // ANSI helpers (shared with test-moderation.ts pattern)
@@ -172,88 +180,114 @@ console.log();
 
 const model = createModel(modelString);
 
-// Process in batches of CONCURRENCY
-const rows: Row[] = new Array(messages.length);
-let done = 0;
-let errors = 0;
+const redis = createRedisConnection(env.REDIS_URL);
+const sql = createDbConnection();
 
-renderProgress(0, messages.length, 0);
+try {
+  const db = createDrizzleDb(sql);
+  const moderationRepo = new ModerationConfigRepository(db);
+  const moderationCache = new ModerationConfigCache({
+    redis,
+    repo: moderationRepo,
+    prefix: env.MODERATION_CONFIG_REDIS_PREFIX,
+  });
+  const moderationService = new ModerationConfigService({
+    repo: moderationRepo,
+    cache: moderationCache,
+  });
+  const config = await moderationService.getActive();
 
-for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY) {
-  const batchEnd = Math.min(batchStart + CONCURRENCY, messages.length);
-  const batch = messages.slice(batchStart, batchEnd);
+  // Process in batches of CONCURRENCY
+  const rows: Row[] = new Array(messages.length);
+  let done = 0;
+  let errors = 0;
 
-  await Promise.all(
-    batch.map(async (message, i) => {
-      const idx = batchStart + i;
-      try {
-        const result = await classifyMessage(message, model);
-        rows[idx] = {
-          message,
-          action: result.action,
-          partner: result.partner ?? "",
-          category: result.category,
-          confidence: result.confidence.toFixed(2),
-          reason: result.reason,
-          error: "",
-        };
-      } catch (err) {
-        errors++;
-        rows[idx] = {
-          message,
-          action: "",
-          partner: "",
-          category: "",
-          confidence: "",
-          reason: "",
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-      done++;
-      renderProgress(done, messages.length, errors);
-    })
+  renderProgress(0, messages.length, 0);
+
+  for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY) {
+    const batchEnd = Math.min(batchStart + CONCURRENCY, messages.length);
+    const batch = messages.slice(batchStart, batchEnd);
+
+    await Promise.all(
+      batch.map(async (message, i) => {
+        const idx = batchStart + i;
+        try {
+          const result = await classifyMessage(
+            message,
+            model,
+            config.systemPrompt,
+            config.examples
+          );
+          rows[idx] = {
+            message,
+            action: result.action,
+            partner: result.partner ?? "",
+            category: result.category,
+            confidence: result.confidence.toFixed(2),
+            reason: result.reason,
+            error: "",
+          };
+        } catch (err) {
+          errors++;
+          rows[idx] = {
+            message,
+            action: "",
+            partner: "",
+            category: "",
+            confidence: "",
+            reason: "",
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+        done++;
+        renderProgress(done, messages.length, errors);
+      })
+    );
+  }
+
+  // Write CSV output
+  const headers = ["message", "action", "partner", "category", "confidence", "reason", "error"];
+  const csvLines = [
+    headers.join(","),
+    ...rows.map((row) =>
+      [row.message, row.action, row.partner, row.category, row.confidence, row.reason, row.error]
+        .map(escapeCsvField)
+        .join(",")
+    ),
+  ];
+  await Bun.write(outputPath, `${csvLines.join("\n")}\n`);
+
+  // Summary
+  const successful = rows.filter((r) => r.action !== "").length;
+  const actionCounts = { allow: 0, remove: 0, ban: 0 };
+  for (const row of rows) {
+    if (row.action === "allow") actionCounts.allow++;
+    else if (row.action === "remove") actionCounts.remove++;
+    else if (row.action === "ban") actionCounts.ban++;
+  }
+
+  console.log("\n");
+  console.log(`  ${"─".repeat(50)}`);
+  console.log(
+    `  ${bold("Concluído!")}  ${dim(String(successful))}/${bold(String(messages.length))} processadas`
   );
+  console.log();
+  console.log(
+    `  ${green("✅ allow")}   ${bold(String(actionCounts.allow).padStart(4))}  ${dim(`${String(Math.round((actionCounts.allow / messages.length) * 100))}%`)}`
+  );
+  console.log(
+    `  ${yellow("⚠️  remove")}  ${bold(String(actionCounts.remove).padStart(4))}  ${dim(`${String(Math.round((actionCounts.remove / messages.length) * 100))}%`)}`
+  );
+  console.log(
+    `  ${red("🚫 ban")}     ${bold(String(actionCounts.ban).padStart(4))}  ${dim(`${String(Math.round((actionCounts.ban / messages.length) * 100))}%`)}`
+  );
+  if (errors > 0) {
+    console.log(`  ${red("❌ erro")}    ${bold(String(errors).padStart(4))}`);
+  }
+  console.log();
+  console.log(`  ${dim("Salvo em")} ${c.white}${outputPath}${c.reset}`);
+  console.log();
+} finally {
+  redis.disconnect();
+  await sql.end();
 }
-
-// Write CSV output
-const headers = ["message", "action", "partner", "category", "confidence", "reason", "error"];
-const csvLines = [
-  headers.join(","),
-  ...rows.map((row) =>
-    [row.message, row.action, row.partner, row.category, row.confidence, row.reason, row.error]
-      .map(escapeCsvField)
-      .join(",")
-  ),
-];
-await Bun.write(outputPath, `${csvLines.join("\n")}\n`);
-
-// Summary
-const successful = rows.filter((r) => r.action !== "").length;
-const actionCounts = { allow: 0, remove: 0, ban: 0 };
-for (const row of rows) {
-  if (row.action === "allow") actionCounts.allow++;
-  else if (row.action === "remove") actionCounts.remove++;
-  else if (row.action === "ban") actionCounts.ban++;
-}
-
-console.log("\n");
-console.log(`  ${"─".repeat(50)}`);
-console.log(
-  `  ${bold("Concluído!")}  ${dim(String(successful))}/${bold(String(messages.length))} processadas`
-);
-console.log();
-console.log(
-  `  ${green("✅ allow")}   ${bold(String(actionCounts.allow).padStart(4))}  ${dim(`${String(Math.round((actionCounts.allow / messages.length) * 100))}%`)}`
-);
-console.log(
-  `  ${yellow("⚠️  remove")}  ${bold(String(actionCounts.remove).padStart(4))}  ${dim(`${String(Math.round((actionCounts.remove / messages.length) * 100))}%`)}`
-);
-console.log(
-  `  ${red("🚫 ban")}     ${bold(String(actionCounts.ban).padStart(4))}  ${dim(`${String(Math.round((actionCounts.ban / messages.length) * 100))}%`)}`
-);
-if (errors > 0) {
-  console.log(`  ${red("❌ erro")}    ${bold(String(errors).padStart(4))}`);
-}
-console.log();
-console.log(`  ${dim("Salvo em")} ${c.white}${outputPath}${c.reset}`);
-console.log();

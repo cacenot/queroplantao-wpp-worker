@@ -138,6 +138,29 @@ describe.skipIf(!INTEGRATION)("ModerationConfigRepository (integration)", () => 
     });
   });
 
+  describe("listVersionsByPrefix", () => {
+    it("retorna apenas versões que começam pelo prefixo", async () => {
+      await repo.withTransaction((tx) =>
+        repo.insertAndActivate(buildRow({ version: "2026-04-v1" }), tx)
+      );
+      await repo.withTransaction((tx) =>
+        repo.insertAndActivate(buildRow({ version: "2026-04-v2" }), tx)
+      );
+      await repo.withTransaction((tx) =>
+        repo.insertAndActivate(buildRow({ version: "2026-05-v1" }), tx)
+      );
+
+      const apr = await repo.listVersionsByPrefix("2026-04-v");
+      expect(apr.sort()).toEqual(["2026-04-v1", "2026-04-v2"]);
+
+      const may = await repo.listVersionsByPrefix("2026-05-v");
+      expect(may).toEqual(["2026-05-v1"]);
+
+      const jun = await repo.listVersionsByPrefix("2026-06-v");
+      expect(jun).toEqual([]);
+    });
+  });
+
   describe("listHistory", () => {
     it("ordena por createdAt desc e respeita limit", async () => {
       await repo.withTransaction((tx) => repo.insertAndActivate(buildRow({ version: "a" }), tx));
