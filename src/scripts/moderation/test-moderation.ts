@@ -1,6 +1,6 @@
+import { classifyTiered } from "../../ai/classify-tiered.ts";
 import { createModel } from "../../ai/model.ts";
 import { loadActive } from "../../ai/moderation/loader.ts";
-import { classifyMessage } from "../../ai/moderator.ts";
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -56,21 +56,34 @@ function separator(width = 60): string {
   return dim("─".repeat(width));
 }
 
+type AnalysisSummary = {
+  action: string;
+  category: string;
+  confidence: number;
+  reason: string;
+};
+
 function printResult(
   text: string,
-  model: string,
-  action: string,
-  category: string,
-  confidence: number,
-  reason: string
+  modelUsed: string,
+  escalated: boolean,
+  primary: AnalysisSummary | null,
+  final: AnalysisSummary
 ) {
-  const style = ACTION_STYLE[action] ?? { color: c.white, icon: "•", bg: "" };
+  const style = ACTION_STYLE[final.action] ?? { color: c.white, icon: "•", bg: "" };
 
   console.log();
   console.log(`${c.cyan}${bold("  Quero Plantão — Moderator Test")}${c.reset}`);
   console.log(`  ${separator(44)}`);
   console.log();
-  console.log(`  ${dim("Modelo  ")}${c.cyan}${model}${c.reset}`);
+  console.log(`  ${dim("Modelo  ")}${c.cyan}${modelUsed}${c.reset}`);
+  if (escalated && primary) {
+    console.log(
+      `  ${dim("Escalou ")}${c.yellow}${bold("SIM")}${c.reset} ${dim(
+        `(primary: ${primary.category}/${primary.action} ${Math.round(primary.confidence * 100)}%)`
+      )}`
+    );
+  }
   console.log();
   console.log(`  ${dim("Mensagem")}`);
   console.log(`  ${separator(44)}`);
@@ -78,13 +91,13 @@ function printResult(
   console.log(`  ${separator(44)}`);
   console.log();
   console.log(
-    `  ${dim("Ação     ")}${style.color}${bold(`${style.icon} ${action.toUpperCase()}`)}${c.reset}`
+    `  ${dim("Ação     ")}${style.color}${bold(`${style.icon} ${final.action.toUpperCase()}`)}${c.reset}`
   );
-  console.log(`  ${dim("Categoria")} ${bold(category)}`);
-  console.log(`  ${dim("Confiança")} ${confidenceBar(confidence)}`);
+  console.log(`  ${dim("Categoria")} ${bold(final.category)}`);
+  console.log(`  ${dim("Confiança")} ${confidenceBar(final.confidence)}`);
   console.log();
   console.log(`  ${dim("Motivo")}`);
-  console.log(`  ${c.white}${reason}${c.reset}`);
+  console.log(`  ${c.white}${final.reason}${c.reset}`);
   console.log();
 }
 
@@ -102,22 +115,29 @@ if (args.length === 0) {
 
 const text = args.join(" ");
 const config = loadActive();
-const modelString = process.env.MODERATION_MODEL ?? config.primaryModel;
+const primaryModelString = process.env.MODERATION_MODEL ?? config.primaryModel;
+const escalationModelString = config.escalationModel;
 
-console.log(`\n  ${dim("Classificando...")} ${dim(modelString)} ${dim(`(v=${config.version})`)}`);
+const escalationLabel = escalationModelString
+  ? ` → ${escalationModelString} (≥${config.escalationThreshold})`
+  : "";
+console.log(
+  `\n  ${dim("Classificando...")} ${dim(primaryModelString)}${dim(escalationLabel)} ${dim(`(v=${config.version})`)}`
+);
 
 try {
-  const model = createModel(modelString);
-  const { analysis } = await classifyMessage(text, model, config.systemPrompt, config.examples);
+  const result = await classifyTiered(text, {
+    primaryModel: createModel(primaryModelString),
+    primaryModelString,
+    escalationModel: escalationModelString ? createModel(escalationModelString) : null,
+    escalationModelString,
+    escalationThreshold: config.escalationThreshold,
+    escalationCategories: config.escalationCategories,
+    systemPrompt: config.systemPrompt,
+    examples: config.examples,
+  });
 
-  printResult(
-    text,
-    modelString,
-    analysis.action,
-    analysis.category,
-    analysis.confidence,
-    analysis.reason
-  );
+  printResult(text, result.modelUsed, result.escalated, result.primaryAnalysis, result.analysis);
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`\n  ${c.red}${bold("Erro:")}${c.reset} ${message}\n`);
