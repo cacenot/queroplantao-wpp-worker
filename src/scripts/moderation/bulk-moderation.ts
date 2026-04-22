@@ -61,6 +61,28 @@ function renderProgress(
 }
 
 // ---------------------------------------------------------------------------
+// Retry
+// ---------------------------------------------------------------------------
+
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 1_000;
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_MS * 2 ** attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
+// ---------------------------------------------------------------------------
 // CSV helpers
 // ---------------------------------------------------------------------------
 
@@ -213,18 +235,20 @@ for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY
     batch.map(async (message, i) => {
       const idx = batchStart + i;
       try {
-        const result = await classifyTiered(message, {
-          primaryModel: modelRegistry.getModel(config.primaryModel),
-          primaryModelString: config.primaryModel,
-          escalationModel: config.escalationModel
-            ? modelRegistry.getModel(config.escalationModel)
-            : null,
-          escalationModelString: config.escalationModel,
-          escalationThreshold: config.escalationThreshold,
-          escalationCategories: config.escalationCategories,
-          systemPrompt: config.systemPrompt,
-          examples: config.examples,
-        });
+        const result = await withRetry(() =>
+          classifyTiered(message, {
+            primaryModel: modelRegistry.getModel(config.primaryModel),
+            primaryModelString: config.primaryModel,
+            escalationModel: config.escalationModel
+              ? modelRegistry.getModel(config.escalationModel)
+              : null,
+            escalationModelString: config.escalationModel,
+            escalationThreshold: config.escalationThreshold,
+            escalationCategories: config.escalationCategories,
+            systemPrompt: config.systemPrompt,
+            examples: config.examples,
+          })
+        );
         totalPromptTokens += result.usage.promptTokens;
         totalCompletionTokens += result.usage.completionTokens;
         rows[idx] = {
