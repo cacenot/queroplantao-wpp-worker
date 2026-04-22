@@ -2,14 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { classifyTiered } from "../../ai/classify-tiered.ts";
 import { createModelRegistry } from "../../ai/model-registry.ts";
-import { env } from "../../config/env.ts";
-import { createDbConnection, createDrizzleDb } from "../../db/client.ts";
-import { ModerationConfigRepository } from "../../db/repositories/moderation-config-repository.ts";
-import { createRedisConnection } from "../../lib/redis.ts";
-import {
-  ModerationConfigCache,
-  ModerationConfigService,
-} from "../../services/moderation-config/index.ts";
+import { loadActive } from "../../ai/moderation/loader.ts";
 
 // ---------------------------------------------------------------------------
 // ANSI helpers (shared with test-moderation.ts pattern)
@@ -184,169 +177,150 @@ await mkdir(outputDir, { recursive: true });
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const outputPath = join(outputDir, `output_${timestamp}.csv`);
 
-const redis = createRedisConnection(env.REDIS_URL);
-const sql = createDbConnection();
+const config = loadActive();
+const modelRegistry = createModelRegistry();
 
-try {
-  const db = createDrizzleDb(sql);
-  const moderationRepo = new ModerationConfigRepository(db);
-  const moderationCache = new ModerationConfigCache({
-    redis,
-    repo: moderationRepo,
-    prefix: env.MODERATION_CONFIG_REDIS_PREFIX,
-  });
-  const moderationService = new ModerationConfigService({
-    repo: moderationRepo,
-    cache: moderationCache,
-  });
-  const config = await moderationService.getActive();
-  const modelRegistry = createModelRegistry();
-
-  // Print header
-  console.log();
-  console.log(`  ${cyan(bold("Quero Plantão — Bulk Moderation"))}`);
-  console.log(`  ${"─".repeat(50)}`);
-  console.log(`  ${dim("Primary ")} ${cyan(config.primaryModel)}`);
-  if (config.escalationModel) {
-    console.log(
-      `  ${dim("Escalate")} ${cyan(config.escalationModel)} (threshold ${config.escalationThreshold})`
-    );
-  }
-  console.log(`  ${dim("Input   ")} ${csvPath}`);
-  console.log(`  ${dim("Total   ")} ${bold(String(messages.length))} mensagens`);
-  console.log(`  ${dim("Output  ")} ${outputPath}`);
-  console.log(`  ${"─".repeat(50)}`);
-  console.log();
-
-  // Process in batches of CONCURRENCY
-  const rows: Row[] = new Array(messages.length);
-  let done = 0;
-  let errors = 0;
-  let totalPromptTokens = 0;
-  let totalCompletionTokens = 0;
-
-  renderProgress(0, messages.length, 0, 0, 0);
-
-  for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY) {
-    const batchEnd = Math.min(batchStart + CONCURRENCY, messages.length);
-    const batch = messages.slice(batchStart, batchEnd);
-
-    await Promise.all(
-      batch.map(async (message, i) => {
-        const idx = batchStart + i;
-        try {
-          const result = await classifyTiered(message, {
-            primaryModel: modelRegistry.getModel(config.primaryModel),
-            primaryModelString: config.primaryModel,
-            escalationModel: config.escalationModel
-              ? modelRegistry.getModel(config.escalationModel)
-              : null,
-            escalationModelString: config.escalationModel,
-            escalationThreshold: config.escalationThreshold,
-            escalationCategories: config.escalationCategories,
-            systemPrompt: config.systemPrompt,
-            examples: config.examples,
-          });
-          totalPromptTokens += result.usage.promptTokens;
-          totalCompletionTokens += result.usage.completionTokens;
-          rows[idx] = {
-            message,
-            action: result.analysis.action,
-            partner: result.analysis.partner ?? "",
-            category: result.analysis.category,
-            confidence: result.analysis.confidence.toFixed(2),
-            reason: result.analysis.reason,
-            modelUsed: result.modelUsed,
-            escalated: result.escalated ? "true" : "false",
-            error: "",
-          };
-        } catch (err) {
-          errors++;
-          rows[idx] = {
-            message,
-            action: "",
-            partner: "",
-            category: "",
-            confidence: "",
-            reason: "",
-            modelUsed: "",
-            escalated: "",
-            error: err instanceof Error ? err.message : String(err),
-          };
-        }
-        done++;
-        renderProgress(done, messages.length, errors, totalPromptTokens, totalCompletionTokens);
-      })
-    );
-  }
-
-  // Write CSV output
-  const headers = [
-    "message",
-    "action",
-    "partner",
-    "category",
-    "confidence",
-    "reason",
-    "model_used",
-    "escalated",
-    "error",
-  ];
-  const csvLines = [
-    headers.join(","),
-    ...rows.map((row) =>
-      [
-        row.message,
-        row.action,
-        row.partner,
-        row.category,
-        row.confidence,
-        row.reason,
-        row.modelUsed,
-        row.escalated,
-        row.error,
-      ]
-        .map(escapeCsvField)
-        .join(",")
-    ),
-  ];
-  await Bun.write(outputPath, `${csvLines.join("\n")}\n`);
-
-  // Summary
-  const successful = rows.filter((r) => r.action !== "").length;
-  const actionCounts = { allow: 0, remove: 0, ban: 0 };
-  for (const row of rows) {
-    if (row.action === "allow") actionCounts.allow++;
-    else if (row.action === "remove") actionCounts.remove++;
-    else if (row.action === "ban") actionCounts.ban++;
-  }
-
-  console.log("\n");
-  console.log(`  ${"─".repeat(50)}`);
+// Print header
+console.log();
+console.log(`  ${cyan(bold("Quero Plantão — Bulk Moderation"))}`);
+console.log(`  ${"─".repeat(50)}`);
+console.log(`  ${dim("Primary ")} ${cyan(config.primaryModel)}`);
+if (config.escalationModel) {
   console.log(
-    `  ${bold("Concluído!")}  ${dim(String(successful))}/${bold(String(messages.length))} processadas`
+    `  ${dim("Escalate")} ${cyan(config.escalationModel)} (threshold ${config.escalationThreshold})`
   );
-  console.log();
-  console.log(
-    `  ${green("✅ allow")}   ${bold(String(actionCounts.allow).padStart(4))}  ${dim(`${String(Math.round((actionCounts.allow / messages.length) * 100))}%`)}`
-  );
-  console.log(
-    `  ${yellow("⚠️  remove")}  ${bold(String(actionCounts.remove).padStart(4))}  ${dim(`${String(Math.round((actionCounts.remove / messages.length) * 100))}%`)}`
-  );
-  console.log(
-    `  ${red("🚫 ban")}     ${bold(String(actionCounts.ban).padStart(4))}  ${dim(`${String(Math.round((actionCounts.ban / messages.length) * 100))}%`)}`
-  );
-  if (errors > 0) {
-    console.log(`  ${red("❌ erro")}    ${bold(String(errors).padStart(4))}`);
-  }
-  console.log();
-  console.log(
-    `  ${dim("Tokens  ")} ↑ ${bold(formatTokens(totalPromptTokens))} prompt  ↓ ${bold(formatTokens(totalCompletionTokens))} completion  ${dim(`(total ${formatTokens(totalPromptTokens + totalCompletionTokens)})`)}`
-  );
-  console.log();
-  console.log(`  ${dim("Salvo em")} ${c.white}${outputPath}${c.reset}`);
-  console.log();
-} finally {
-  redis.disconnect();
-  await sql.end();
 }
+console.log(`  ${dim("Input   ")} ${csvPath}`);
+console.log(`  ${dim("Total   ")} ${bold(String(messages.length))} mensagens`);
+console.log(`  ${dim("Output  ")} ${outputPath}`);
+console.log(`  ${"─".repeat(50)}`);
+console.log();
+
+// Process in batches of CONCURRENCY
+const rows: Row[] = new Array(messages.length);
+let done = 0;
+let errors = 0;
+let totalPromptTokens = 0;
+let totalCompletionTokens = 0;
+
+renderProgress(0, messages.length, 0, 0, 0);
+
+for (let batchStart = 0; batchStart < messages.length; batchStart += CONCURRENCY) {
+  const batchEnd = Math.min(batchStart + CONCURRENCY, messages.length);
+  const batch = messages.slice(batchStart, batchEnd);
+
+  await Promise.all(
+    batch.map(async (message, i) => {
+      const idx = batchStart + i;
+      try {
+        const result = await classifyTiered(message, {
+          primaryModel: modelRegistry.getModel(config.primaryModel),
+          primaryModelString: config.primaryModel,
+          escalationModel: config.escalationModel
+            ? modelRegistry.getModel(config.escalationModel)
+            : null,
+          escalationModelString: config.escalationModel,
+          escalationThreshold: config.escalationThreshold,
+          escalationCategories: config.escalationCategories,
+          systemPrompt: config.systemPrompt,
+          examples: config.examples,
+        });
+        totalPromptTokens += result.usage.promptTokens;
+        totalCompletionTokens += result.usage.completionTokens;
+        rows[idx] = {
+          message,
+          action: result.analysis.action,
+          partner: result.analysis.partner ?? "",
+          category: result.analysis.category,
+          confidence: result.analysis.confidence.toFixed(2),
+          reason: result.analysis.reason,
+          modelUsed: result.modelUsed,
+          escalated: result.escalated ? "true" : "false",
+          error: "",
+        };
+      } catch (err) {
+        errors++;
+        rows[idx] = {
+          message,
+          action: "",
+          partner: "",
+          category: "",
+          confidence: "",
+          reason: "",
+          modelUsed: "",
+          escalated: "",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+      done++;
+      renderProgress(done, messages.length, errors, totalPromptTokens, totalCompletionTokens);
+    })
+  );
+}
+
+// Write CSV output
+const headers = [
+  "message",
+  "action",
+  "partner",
+  "category",
+  "confidence",
+  "reason",
+  "model_used",
+  "escalated",
+  "error",
+];
+const csvLines = [
+  headers.join(","),
+  ...rows.map((row) =>
+    [
+      row.message,
+      row.action,
+      row.partner,
+      row.category,
+      row.confidence,
+      row.reason,
+      row.modelUsed,
+      row.escalated,
+      row.error,
+    ]
+      .map(escapeCsvField)
+      .join(",")
+  ),
+];
+await Bun.write(outputPath, `${csvLines.join("\n")}\n`);
+
+// Summary
+const successful = rows.filter((r) => r.action !== "").length;
+const actionCounts = { allow: 0, remove: 0, ban: 0 };
+for (const row of rows) {
+  if (row.action === "allow") actionCounts.allow++;
+  else if (row.action === "remove") actionCounts.remove++;
+  else if (row.action === "ban") actionCounts.ban++;
+}
+
+console.log("\n");
+console.log(`  ${"─".repeat(50)}`);
+console.log(
+  `  ${bold("Concluído!")}  ${dim(String(successful))}/${bold(String(messages.length))} processadas`
+);
+console.log();
+console.log(
+  `  ${green("✅ allow")}   ${bold(String(actionCounts.allow).padStart(4))}  ${dim(`${String(Math.round((actionCounts.allow / messages.length) * 100))}%`)}`
+);
+console.log(
+  `  ${yellow("⚠️  remove")}  ${bold(String(actionCounts.remove).padStart(4))}  ${dim(`${String(Math.round((actionCounts.remove / messages.length) * 100))}%`)}`
+);
+console.log(
+  `  ${red("🚫 ban")}     ${bold(String(actionCounts.ban).padStart(4))}  ${dim(`${String(Math.round((actionCounts.ban / messages.length) * 100))}%`)}`
+);
+if (errors > 0) {
+  console.log(`  ${red("❌ erro")}    ${bold(String(errors).padStart(4))}`);
+}
+console.log();
+console.log(
+  `  ${dim("Tokens  ")} ↑ ${bold(formatTokens(totalPromptTokens))} prompt  ↓ ${bold(formatTokens(totalCompletionTokens))} completion  ${dim(`(total ${formatTokens(totalPromptTokens + totalCompletionTokens)})`)}`
+);
+console.log();
+console.log(`  ${dim("Salvo em")} ${c.white}${outputPath}${c.reset}`);
+console.log();

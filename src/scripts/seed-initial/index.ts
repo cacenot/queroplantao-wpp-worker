@@ -3,7 +3,6 @@ import { env } from "../../config/env.ts";
 import { createDbConnection, createDrizzleDb } from "../../db/client.ts";
 import { MessagingGroupsRepository } from "../../db/repositories/messaging-groups-repository.ts";
 import { MessagingProviderInstanceRepository } from "../../db/repositories/messaging-provider-instance-repository.ts";
-import { ModerationConfigRepository } from "../../db/repositories/moderation-config-repository.ts";
 import { ZApiClient } from "../../gateways/whatsapp/zapi/client.ts";
 import { logger } from "../../lib/logger.ts";
 import { QpAdminApiClient } from "../../lib/qp-admin-api.ts";
@@ -14,22 +13,16 @@ import {
   MessagingProviderInstanceService,
   maskToken,
 } from "../../services/messaging-provider-instance/index.ts";
-import {
-  ModerationConfigCache,
-  ModerationConfigService,
-  ConflictError as ModerationConflictError,
-} from "../../services/moderation-config/index.ts";
-import { MODERATION_EXAMPLES } from "./moderation-examples.ts";
-import { MODERATION_SYSTEM_PROMPT } from "./moderation-prompt.ts";
 
 /**
  * Seed inicial idempotente para um ambiente novo (inclusive prod).
  *
  * 1. Se SEED_DATA_JSON estiver definida, cria as instâncias Z-API. Caso
  *    contrário, pula esta etapa (instâncias podem ser criadas depois via API).
- * 2. Cria a moderation config inicial com defaults hardcoded (prompt + examples)
- *    — só roda se não há config ativa no DB.
- * 3. Roda o sync de grupos a partir do QP Admin API.
+ * 2. Roda o sync de grupos a partir do QP Admin API.
+ *
+ * Moderation config não é mais seedada aqui — prompt/examples vivem em
+ * `src/ai/moderation/versions/*.md`, carregados no boot via `loadActive()`.
  *
  * Idempotente: duplicados são pulados. Re-rodar é seguro.
  *
@@ -39,7 +32,6 @@ import { MODERATION_SYSTEM_PROMPT } from "./moderation-prompt.ts";
  */
 
 const REDIS_KEY = "qp:whatsapp";
-const MODERATION_PRIMARY_MODEL = "openai/gpt-4o-mini";
 
 const instanceSchema = z.object({
   displayName: z.string().min(1),
@@ -95,17 +87,6 @@ const instanceService = new MessagingProviderInstanceService({
     }),
 });
 
-const moderationRepo = new ModerationConfigRepository(db);
-const moderationCache = new ModerationConfigCache({
-  redis,
-  repo: moderationRepo,
-  prefix: env.MODERATION_CONFIG_REDIS_PREFIX,
-});
-const moderationService = new ModerationConfigService({
-  repo: moderationRepo,
-  cache: moderationCache,
-});
-
 const messagingGroupsRepo = new MessagingGroupsRepository(db);
 const messagingGroupsCache = new MessagingGroupsCache({
   redis,
@@ -159,44 +140,6 @@ async function seedInstance(instance: SeedInstance): Promise<void> {
   }
 }
 
-async function seedModeration(): Promise<void> {
-  const baseLog = { step: "moderation" };
-
-  const active = await moderationRepo.findActive();
-  if (active) {
-    logger.info(
-      { ...baseLog, existingVersion: active.version, action: "skipped" },
-      "Moderation config já ativa — pulando"
-    );
-    return;
-  }
-
-  try {
-    const config = await moderationService.createConfig({
-      primaryModel: MODERATION_PRIMARY_MODEL,
-      systemPrompt: MODERATION_SYSTEM_PROMPT,
-      escalationModel: null,
-      escalationThreshold: null,
-      escalationCategories: [],
-      examples: MODERATION_EXAMPLES,
-    });
-    logger.info(
-      { ...baseLog, version: config.version, primaryModel: config.primaryModel, action: "created" },
-      "Moderation config criada e ativada"
-    );
-  } catch (err) {
-    if (err instanceof ModerationConflictError) {
-      logger.info(
-        { ...baseLog, action: "skipped" },
-        "Moderation criada concorrentemente — pulando"
-      );
-      return;
-    }
-    logger.error({ ...baseLog, err }, "Falha ao criar moderation config — abortando seed");
-    throw err;
-  }
-}
-
 try {
   // — Etapa 1: provider instances (só roda se SEED_DATA_JSON definida; sequencial, fail-fast)
   if (seedData) {
@@ -210,10 +153,7 @@ try {
     );
   }
 
-  // — Etapa 2: moderation config inicial (defaults hardcoded)
-  await seedModeration();
-
-  // — Etapa 3: sync de grupos a partir do QP Admin API
+  // — Etapa 2: sync de grupos a partir do QP Admin API
   const result = await groupSyncService.syncFromAdminApi();
   logger.info({ step: "sync-groups", ...result }, "Sync de grupos concluído");
 

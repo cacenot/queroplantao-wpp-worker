@@ -8,10 +8,19 @@ import type { NormalizedZapiMessage } from "../../gateways/whatsapp/zapi/message
 import { logger } from "../../lib/logger.ts";
 import { computeContentHash, computeIngestionDedupeHash } from "../../lib/message-hash.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
-import type { ModerationConfigService } from "../moderation-config/index.ts";
 import type { ModerationEnforcementService } from "../moderation-enforcement/index.ts";
 import type { TaskService } from "../task/index.ts";
 import type { IngestContext, IngestOutcome } from "./types.ts";
+
+/**
+ * Snapshot da config de moderação usada em runtime. Versão + modelo vão pra
+ * `message_moderations` (idempotência/reuse por versão + rastreabilidade do
+ * modelo que rodou). Estático por boot: `.md` só troca via redeploy/restart.
+ */
+type ModerationConfigSnapshot = {
+  version: string;
+  primaryModel: string;
+};
 
 type GroupMessagesServiceOptions = {
   groupMessagesRepo: GroupMessagesRepository;
@@ -19,7 +28,7 @@ type GroupMessagesServiceOptions = {
   messagingGroupsRepo: MessagingGroupsRepository;
   messagingGroupsCache: MessagingGroupsCache;
   taskService: TaskService;
-  moderationConfigService: ModerationConfigService;
+  moderationConfig: ModerationConfigSnapshot;
   enforcement: ModerationEnforcementService;
   ingestionDedupeWindowMs: number;
   moderationReuseWindowMs: number;
@@ -126,12 +135,10 @@ export class GroupMessagesService {
       groupMessagesRepo,
       moderationsRepo,
       taskService,
-      moderationConfigService,
+      moderationConfig: config,
       enforcement,
       moderationReuseWindowMs,
     } = this.options;
-
-    const config = await moderationConfigService.getActive();
 
     // — 1. Tentar reaproveitar moderação existente com mesmo conteúdo
     const cutoff = new Date(Date.now() - moderationReuseWindowMs);

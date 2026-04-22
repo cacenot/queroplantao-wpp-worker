@@ -6,7 +6,6 @@ import type { GroupMessage } from "../../db/schema/group-messages.ts";
 import type { MessageModeration } from "../../db/schema/message-moderations.ts";
 import type { NormalizedZapiMessage } from "../../gateways/whatsapp/zapi/message-normalizer.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
-import type { ModerationConfigService } from "../moderation-config/index.ts";
 import type { ModerationEnforcementService } from "../moderation-enforcement/index.ts";
 import type { TaskService } from "../task/index.ts";
 import { GroupMessagesService } from "./group-messages-service.ts";
@@ -120,7 +119,7 @@ type Deps = {
   messagingGroupsRepo?: Partial<MessagingGroupsRepository>;
   messagingGroupsCache?: Partial<MessagingGroupsCache>;
   taskService?: Partial<TaskService>;
-  moderationConfigService?: Partial<ModerationConfigService>;
+  moderationConfig?: { version: string; primaryModel: string };
   enforcement?: Partial<ModerationEnforcementService>;
 };
 
@@ -154,26 +153,10 @@ function makeService(deps: Deps = {}) {
       ...deps.taskService,
     } as unknown as TaskService,
 
-    moderationConfigService: {
-      getActive: mock(() =>
-        Promise.resolve({
-          id: "cfg-1",
-          version: "v1",
-          primaryModel: "openai/gpt-4o-mini",
-          escalationModel: null,
-          escalationThreshold: null,
-          escalationCategories: [],
-          systemPrompt: "prompt",
-          examples: [],
-          isActive: true,
-          contentHash: "hash",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          activatedAt: null,
-        })
-      ),
-      ...deps.moderationConfigService,
-    } as unknown as ModerationConfigService,
+    moderationConfig: deps.moderationConfig ?? {
+      version: "v1",
+      primaryModel: "openai/gpt-4o-mini",
+    },
 
     enforcement: {
       evaluateAndEnforce: mock(() => Promise.resolve()),

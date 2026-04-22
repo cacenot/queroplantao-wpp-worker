@@ -1,13 +1,6 @@
 import { createModel } from "../../ai/model.ts";
+import { loadActive } from "../../ai/moderation/loader.ts";
 import { classifyMessage } from "../../ai/moderator.ts";
-import { env } from "../../config/env.ts";
-import { createDbConnection, createDrizzleDb } from "../../db/client.ts";
-import { ModerationConfigRepository } from "../../db/repositories/moderation-config-repository.ts";
-import { createRedisConnection } from "../../lib/redis.ts";
-import {
-  ModerationConfigCache,
-  ModerationConfigService,
-} from "../../services/moderation-config/index.ts";
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -108,26 +101,12 @@ if (args.length === 0) {
 }
 
 const text = args.join(" ");
-const modelString = process.env.MODERATION_MODEL ?? "openai/gpt-4o-mini";
+const config = loadActive();
+const modelString = process.env.MODERATION_MODEL ?? config.primaryModel;
 
-console.log(`\n  ${dim("Classificando...")} ${dim(modelString)}`);
-
-const redis = createRedisConnection(env.REDIS_URL);
-const sql = createDbConnection();
-const db = createDrizzleDb(sql);
-const moderationRepo = new ModerationConfigRepository(db);
-const moderationCache = new ModerationConfigCache({
-  redis,
-  repo: moderationRepo,
-  prefix: env.MODERATION_CONFIG_REDIS_PREFIX,
-});
-const moderationService = new ModerationConfigService({
-  repo: moderationRepo,
-  cache: moderationCache,
-});
+console.log(`\n  ${dim("Classificando...")} ${dim(modelString)} ${dim(`(v=${config.version})`)}`);
 
 try {
-  const config = await moderationService.getActive();
   const model = createModel(modelString);
   const { analysis } = await classifyMessage(text, model, config.systemPrompt, config.examples);
 
@@ -143,7 +122,4 @@ try {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`\n  ${c.red}${bold("Erro:")}${c.reset} ${message}\n`);
   process.exit(1);
-} finally {
-  redis.disconnect();
-  await sql.end();
 }

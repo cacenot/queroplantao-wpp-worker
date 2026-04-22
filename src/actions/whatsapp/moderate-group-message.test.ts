@@ -166,14 +166,14 @@ describe("moderateGroupMessage", () => {
     const primary: MessageAnalysis = {
       reason: "ambíguo",
       partner: null,
-      category: "product_sales",
+      category: "sales",
       confidence: 0.55,
       action: "remove",
     };
     const final: MessageAnalysis = {
       reason: "cert",
       partner: null,
-      category: "product_sales",
+      category: "sales",
       confidence: 0.9,
       action: "remove",
     };
@@ -388,7 +388,7 @@ describe("buildRawResult", () => {
     const primary: MessageAnalysis = {
       reason: "ambíguo",
       partner: null,
-      category: "product_sales",
+      category: "sales",
       confidence: 0.5,
       action: "remove",
     };

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { CATEGORIES } from "./categories.ts";
 import { messageAnalysisSchema } from "./moderator.ts";
 
 // ---------------------------------------------------------------------------
@@ -32,22 +33,7 @@ describe("messageAnalysisSchema", () => {
   });
 
   it("aceita todas as categorias válidas", () => {
-    const categories = [
-      "job_opportunity",
-      "clean",
-      "competitor_promotion",
-      "service_sales",
-      "product_sales",
-      "off_topic",
-      "gambling_spam",
-      "piracy",
-      "profanity",
-      "adult_content",
-      "scam",
-      "other_spam",
-    ] as const;
-
-    for (const category of categories) {
+    for (const category of CATEGORIES) {
       const result = messageAnalysisSchema.safeParse({
         reason: "test",
         partner: null,

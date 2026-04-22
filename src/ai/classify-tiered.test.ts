@@ -10,7 +10,7 @@ function analysis(overrides: Partial<MessageAnalysis> = {}): MessageAnalysis {
   return {
     reason: "mock",
     partner: null,
-    category: "product_sales",
+    category: "sales",
     confidence: 0.6,
     action: "remove",
     ...overrides,
@@ -28,7 +28,7 @@ function baseOpts(overrides: Partial<ClassifyTieredOptions> = {}): ClassifyTiere
     escalationModel: FAKE_ESCALATION,
     escalationModelString: "openai/gpt-4o",
     escalationThreshold: 0.7,
-    escalationCategories: ["product_sales", "service_sales", "competitor_promotion"],
+    escalationCategories: ["sales", "spam", "scam"],
     systemPrompt: "system",
     examples: [] as ClassifyExample[],
     ...overrides,
@@ -37,7 +37,7 @@ function baseOpts(overrides: Partial<ClassifyTieredOptions> = {}): ClassifyTiere
 
 describe("classifyTiered", () => {
   it("não escala quando confidence >= threshold", async () => {
-    const primary = analysis({ confidence: 0.9, category: "product_sales" });
+    const primary = analysis({ confidence: 0.9, category: "sales" });
     const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered("msg", baseOpts(), classify);
@@ -64,7 +64,7 @@ describe("classifyTiered", () => {
   });
 
   it("não escala quando escalationModel é null", async () => {
-    const primary = analysis({ confidence: 0.3, category: "product_sales" });
+    const primary = analysis({ confidence: 0.3, category: "sales" });
     const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered(
@@ -78,7 +78,7 @@ describe("classifyTiered", () => {
   });
 
   it("não escala quando threshold é null (escalação desligada)", async () => {
-    const primary = analysis({ confidence: 0.1, category: "product_sales" });
+    const primary = analysis({ confidence: 0.1, category: "sales" });
     const classify = mock(() => Promise.resolve(classifyResult(primary)));
 
     const result = await classifyTiered("msg", baseOpts({ escalationThreshold: null }), classify);
@@ -88,7 +88,7 @@ describe("classifyTiered", () => {
   });
 
   it("escala quando confidence < threshold e categoria elegível", async () => {
-    const primary = analysis({ confidence: 0.5, category: "product_sales", action: "remove" });
+    const primary = analysis({ confidence: 0.5, category: "sales", action: "remove" });
     const escalated = analysis({ confidence: 0.95, category: "job_opportunity", action: "allow" });
 
     const classify = mock((_text: string, model: LanguageModel) =>
@@ -108,7 +108,7 @@ describe("classifyTiered", () => {
   });
 
   it("propaga systemPrompt e examples para ambas as chamadas", async () => {
-    const primary = analysis({ confidence: 0.2, category: "service_sales" });
+    const primary = analysis({ confidence: 0.2, category: "sales" });
     const escalated = analysis({ confidence: 0.9 });
     const classify = mock(
       (_text: string, model: LanguageModel, _systemPrompt: string, _examples: ClassifyExample[]) =>

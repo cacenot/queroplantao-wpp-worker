@@ -71,8 +71,6 @@ const envSchema = z.object({
     .default(15 * 24 * 60 * 60 * 1000),
   // Prefixo das chaves Redis do cache de grupos monitorados (ex.: `${prefix}:whatsapp`)
   MESSAGING_GROUPS_REDIS_PREFIX: z.string().min(1).default("messaging_groups"),
-  // Prefixo das chaves Redis do cache da config ativa de moderação
-  MODERATION_CONFIG_REDIS_PREFIX: z.string().min(1).default("moderation_config"),
 
   // ─── SCRIPTS ─────────────────────────────────────────────────────────────────
   // spam-watcher: lista de filtros separados por vírgula

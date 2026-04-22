@@ -5,19 +5,6 @@
  * (`api/modules/moderation-config/model.ts`) — evita drift entre validações
  * de runtime que olham o mesmo dado por caminhos diferentes.
  */
-export const CATEGORIES = [
-  "job_opportunity",
-  "clean",
-  "competitor_promotion",
-  "service_sales",
-  "product_sales",
-  "off_topic",
-  "gambling_spam",
-  "piracy",
-  "profanity",
-  "adult_content",
-  "scam",
-  "other_spam",
-] as const;
+export const CATEGORIES = ["clean", "job_opportunity", "sales", "spam", "scam"] as const;
 
 export type Category = (typeof CATEGORIES)[number];

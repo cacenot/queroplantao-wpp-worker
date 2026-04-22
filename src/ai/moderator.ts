@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { CATEGORIES } from "./categories.ts";
+import { renderExamples } from "./moderation/render.ts";
 
 export const messageAnalysisSchema = z.object({
   reason: z.string(),
@@ -19,20 +20,6 @@ export type ClassifyExample = {
   /** Comentário do admin; não é enviado ao modelo. */
   note?: string;
 };
-
-/**
- * Renderiza examples como bloco formatado anexado ao system prompt.
- * Preferido sobre `messages` few-shot porque `Output.object` usa tool-call
- * interno — turnos assistant com JSON cru confundem o schema enforcement.
- */
-function renderExamples(examples: ClassifyExample[]): string {
-  if (examples.length === 0) return "";
-  const blocks = examples.map((ex, i) => {
-    const out = JSON.stringify(ex.analysis);
-    return `Exemplo ${i + 1}:\nInput: ${JSON.stringify(ex.text)}\nOutput: ${out}`;
-  });
-  return `\n\n═══ EXEMPLOS ═══\n${blocks.join("\n\n")}`;
-}
 
 export type ClassifyMessageResult = {
   analysis: MessageAnalysis;

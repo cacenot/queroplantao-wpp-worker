@@ -8,7 +8,8 @@ Scripts utilitários para operações manuais e de manutenção. Todos são exec
 
 ### `test-moderation` — Testar uma mensagem
 
-Classifica uma única mensagem usando o modelo de moderação ativo e exibe o resultado formatado no terminal.
+Classifica uma única mensagem usando o prompt/examples ativos (carregados de
+`src/ai/moderation/versions/${ACTIVE_VERSION}.md`) e exibe o resultado formatado no terminal.
 
 ```bash
 bun run test-moderation "<mensagem>"
@@ -21,8 +22,8 @@ bun run test-moderation "Plantão disponível no HU amanhã"
 
 **Saída:** action (ALLOW / REMOVE / BAN), categoria, confiança com barra visual e reasoning.
 
-**Env necessário:** `REDIS_URL`, `DATABASE_URL`, `MODERATION_CONFIG_REDIS_PREFIX`  
-**Opcional:** `MODERATION_MODEL` (padrão: `openai/gpt-4o-mini`)
+**Env necessário:** apenas a API key do provider do modelo (ex: `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`). Sem DB nem Redis.
+**Opcional:** `MODERATION_MODEL` (override do `primaryModel` do arquivo `.md` ativo).
 
 ---
 
@@ -44,10 +45,9 @@ message
 
 Aceita CSV com ou sem cabeçalho `message`. Campos entre aspas (incluindo multiline) são tratados corretamente.
 
-**CSV de saída:** `message, action, partner, category, confidence, reason, error`
+**CSV de saída:** `message, action, partner, category, confidence, reason, model_used, escalated, error`
 
-**Env necessário:** `REDIS_URL`, `DATABASE_URL`, `MODERATION_CONFIG_REDIS_PREFIX`  
-**Opcional:** `MODERATION_MODEL` (padrão: `openai/gpt-4o-mini`)
+**Env necessário:** apenas a API key do provider do modelo. Sem DB nem Redis.
 
 ---
 
@@ -138,11 +138,14 @@ bun run sync-groups
 
 ### `seed-initial` — Seed idempotente para novos ambientes
 
-Inicializa um ambiente novo (inclusive produção) em três etapas, pulando o que já existe:
+Inicializa um ambiente novo (inclusive produção) em duas etapas, pulando o que já existe:
 
 1. **Provider instances** — cria instâncias Z-API (somente se `SEED_DATA_JSON` for passado)
-2. **Moderation config** — cria configuração de moderação inicial ativa
-3. **Sync groups** — sincroniza grupos via API Admin
+2. **Sync groups** — sincroniza grupos via API Admin
+
+> Moderation config não é mais seedada aqui — prompt/examples vivem em
+> [`src/ai/moderation/versions/*.md`](../ai/moderation/versions/) e são carregados
+> no boot de API/Worker.
 
 ```bash
 bun run seed-initial
@@ -154,4 +157,4 @@ SEED_DATA_JSON='{"instances":[{"displayName":"Principal","zapiInstanceId":"abc12
   bun run seed-initial
 ```
 
-**Env necessário:** `REDIS_URL`, `DATABASE_URL`, `QP_ADMIN_API_URL`, `QP_ADMIN_API_TOKEN`, `QP_ADMIN_API_SERVICE_TOKEN`, `MESSAGING_GROUPS_REDIS_PREFIX`, `MODERATION_CONFIG_REDIS_PREFIX`, `ZAPI_CLIENT_TOKEN`
+**Env necessário:** `REDIS_URL`, `DATABASE_URL`, `QP_ADMIN_API_URL`, `QP_ADMIN_API_TOKEN`, `QP_ADMIN_API_SERVICE_TOKEN`, `MESSAGING_GROUPS_REDIS_PREFIX`, `ZAPI_CLIENT_TOKEN`

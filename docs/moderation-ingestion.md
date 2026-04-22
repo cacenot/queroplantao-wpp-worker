@@ -19,7 +19,8 @@ GroupMessagesService.ingestZapi()
      │  ② compute ingestionDedupeHash + contentHash
      │  ③ upsertByIngestionHash → isNew?
      │       duplicata → retorna "duplicate", fim
-     │  ④ carrega config ativa via ModerationConfigService (Redis → DB)
+     │  ④ lê snapshot `{ version, primaryModel }` já carregado no bootstrap
+     │      (arquivo `src/ai/moderation/versions/${ACTIVE_VERSION}.md` → loader.ts)
      │  ⑤ findReusable(contentHash, config.version, 15d)
      │       hit → cria row "cached", atualiza group_messages → "reused"
      │       miss → cria row "fresh/pending" (version=config.version, model=config.primaryModel),
@@ -100,7 +101,7 @@ sha256(normalizedText ?? mediaUrl ?? "")
 
 Sem grupo, sem remetente, sem timestamp. Puro conteúdo.
 
-**Janela de reuso**: `MODERATION_REUSE_WINDOW_MS` (default 15 dias). Respeita a evolução das regras (ativar uma `moderation_configs` com novo `version` invalida o cache automaticamente porque a versão entra no filtro de lookup).
+**Janela de reuso**: `MODERATION_REUSE_WINDOW_MS` (default 15 dias). Respeita a evolução das regras: trocar `ACTIVE_VERSION` (ver [Versionamento](#versionamento-via-arquivo-md-ativo)) invalida o cache automaticamente porque a versão entra no filtro de lookup.
 
 ---
 
@@ -244,15 +245,30 @@ pending ──────────────► analyzed
 
 ---
 
-## Versionamento via `moderation_configs.version`
+## Versionamento via arquivo `.md` ativo
 
-Configuração (prompt, exemplos, modelos, thresholds, versão) vive em Postgres na tabela `moderation_configs`. Partial unique index em `is_active` garante no máximo uma row ativa.
+Configuração (prompt, exemplos, modelos, thresholds, versão) vive em arquivos
+versionados em [`src/ai/moderation/versions/`](../src/ai/moderation/versions/).
+Cada arquivo `{version}.md` contém frontmatter YAML
+(`primaryModel`, `escalationModel`, `escalationThreshold`, `escalationCategories`)
+seguido das seções `# System Prompt` e `# Exemplos`. Ver formato canônico em
+[`src/ai/moderation/loader.ts`](../src/ai/moderation/loader.ts).
 
-- Ativar nova config: `POST /admin/moderation/config` (cria + ativa em uma transação) ou `POST /admin/moderation/config/:version/activate` (rollback para versão existente).
-- Ativação invalida cache Redis (`DEL moderation_config:active`) no service — próximo read recarrega do DB.
-- Bump de `version` invalida cache de reuso de moderação (versão diferente não casa no lookup `WHERE moderation_version=$2`).
-- Mensagens já analisadas com versão anterior mantêm suas linhas intactas (1 mensagem → N moderações, uma por version).
-- Reanálise em massa de histórico: follow-up (script que cria rows `pending` com versão nova para cada `group_messages`).
+- **Versão ativa**: constante em [`src/ai/moderation/active.ts`](../src/ai/moderation/active.ts)
+  (`export const ACTIVE_VERSION = "…"`). Escolha explícita > convenção — greppable,
+  reviewable, fail-loud se o arquivo não existir.
+- **Trocar versão**: editar `active.ts` + redeploy. Sem hot-reload.
+  Rollback = `git revert` do commit que trocou.
+- **Bump de `version` invalida cache de reuso**: versão diferente não casa no
+  lookup `WHERE moderation_version=$2` em `message_moderations`, então a próxima
+  moderação sempre vai ao LLM.
+- **Mensagens já analisadas com versão anterior** mantêm suas linhas intactas
+  (1 mensagem → N moderações, uma por version).
+- **Reanálise em massa** de histórico: follow-up (script que cria rows `pending`
+  com versão nova para cada `group_messages`).
+- **Afinar prompt/examples**: use o slash command
+  [`/tune-moderation`](../.claude/commands/tune-moderation.md) — dado um caso
+  concreto, ele gera nova versão com delta mínimo e atualiza `active.ts`.
 
 ---
 
@@ -331,16 +347,11 @@ manual.
 
 ## Configuração de moderação
 
+Prompt, exemplos, modelos e thresholds são arquivos `.md` versionados — ver
+[Versionamento](#versionamento-via-arquivo-md-ativo) acima. Troca via
+`/tune-moderation` + `git`, não via HTTP.
+
 ### Endpoints
-
-**Config de moderação:**
-
-| Método | Path | Descrição |
-|---|---|---|
-| `GET` | `/admin/moderation/config/active` | Retorna a config ativa (404 se nenhuma). |
-| `GET` | `/admin/moderation/config` | Histórico ordenado por `createdAt desc` (default `limit=10`). |
-| `POST` | `/admin/moderation/config` | Cria e ativa uma nova config (desativa a anterior atomicamente). |
-| `POST` | `/admin/moderation/config/:version/activate` | Rollback para uma versão existente. |
 
 **Blacklist e bypass** (CRUD em `phone_policies`):
 
@@ -353,37 +364,6 @@ manual.
 | `POST` `GET` `DELETE` | `/admin/moderation/bypass[...]` | Idêntico ao blacklist mas para `kind='bypass'`. |
 
 Autenticação: header `x-api-key` (`HTTP_API_KEY`).
-
-### Exemplo — criar config ativa
-
-```http
-POST /admin/moderation/config
-Content-Type: application/json
-x-api-key: ***
-
-{
-  "version": "2026-04-19-v1",
-  "primaryModel": "openai/gpt-4o-mini",
-  "escalationModel": "openai/gpt-4o",
-  "escalationThreshold": 0.7,
-  "escalationCategories": ["hate", "self-harm"],
-  "systemPrompt": "Você é um moderador...",
-  "examples": [
-    { "text": "exemplo", "analysis": { "action": "allow", "category": "...", "confidence": 0.95, "reason": "..." } }
-  ]
-}
-```
-
-Se `escalationModel` for omitido/`null`, o pipeline é single-hop (sem escalation). `escalationCategories` aceita qualquer categoria do enum compartilhado em `src/ai/categories.ts` (typechecked no TypeBox da rota e no Zod do moderator).
-
-### Rollback
-
-```http
-POST /admin/moderation/config/v1/activate
-x-api-key: ***
-```
-
-Ativa a row existente com `version=v1` e desativa a anterior na mesma transação.
 
 ### Exemplo — adicionar à blacklist
 
@@ -447,13 +427,14 @@ compartilham o mesmo broker (LavinMQ) e topologia de retry.
 
 | Variável | Default | Descrição |
 |---|---|---|
-| `MODERATION_CONFIG_REDIS_PREFIX` | `moderation_config` | Prefixo do cache Redis da config ativa (key = `${prefix}:active`). |
 | `INGESTION_DEDUPE_WINDOW_MS` | `60000` | Janela do bucket de dedup de ingestão (ms). |
 | `MODERATION_REUSE_WINDOW_MS` | `1296000000` (15d) | Janela de reuso de moderação por contentHash+version (ms). |
 | `ZAPI_RECEIVED_WEBHOOK_SECRET` | obrigatória | Secret validado timing-safe no webhook. |
 | `ZAPI_RECEIVED_WEBHOOK_ENABLED` | `true` | Desabilitar retorna 404 imediatamente. |
 
-> **Removidas em favor de `moderation_configs`**: `MODERATION_VERSION`, `AI_MODEL_ANALYZE_MESSAGE`. Ambas agora vivem na row ativa da tabela.
+> **Modelos, prompt, examples e `version`** vivem em
+> [`src/ai/moderation/versions/*.md`](../src/ai/moderation/versions/) — não há
+> env var controlando isso. Ver [Versionamento](#versionamento-via-arquivo-md-ativo).
 
 ---
 
@@ -524,4 +505,4 @@ ORDER BY total DESC;
 - **Auto-add à blacklist**: quando LLM retornar `ban` com alta confiança, criar entry em `phone_policies` com `source='moderation_auto'` automaticamente.
 - **Tracking de eventos de enforcement**: hoje fica em log estruturado + rows em `tasks` AMQP. Tabela própria facilitaria audit / reverter kicks errados.
 - **Reaper de pendentes órfãos**: mensagens que ficaram `pending` sem job (crash entre INSERT e enqueue) precisam de reaper periódico.
-- **Reanálise em massa**: script para reavaliar histórico ao ativar nova `moderation_configs.version`.
+- **Reanálise em massa**: script para reavaliar histórico ao ativar nova `ACTIVE_VERSION`.
