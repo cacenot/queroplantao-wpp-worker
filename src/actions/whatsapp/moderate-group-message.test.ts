@@ -95,6 +95,7 @@ function makeRecord(
       isEdited: false,
       moderationStatus: "pending",
       currentModerationId: MODERATION_ID,
+      removedAt: null,
       firstSeenAt: new Date(),
       lastSeenAt: new Date(),
       createdAt: new Date(),

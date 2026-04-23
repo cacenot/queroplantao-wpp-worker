@@ -79,6 +79,7 @@ function makeMessageRow(overrides: Partial<GroupMessage> = {}): GroupMessage {
     isEdited: false,
     moderationStatus: "pending",
     currentModerationId: null,
+    removedAt: null,
     firstSeenAt: new Date(),
     lastSeenAt: new Date(),
     createdAt: new Date(),

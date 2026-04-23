@@ -62,6 +62,7 @@ export const groupMessages = pgTable(
       (): AnyPgColumn => messageModerations.id,
       { onDelete: "set null" }
     ),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -80,6 +81,10 @@ export const groupMessages = pgTable(
     moderationStatusIdx: index("group_messages_moderation_status_idx").on(
       table.moderationStatus,
       table.createdAt
+    ),
+    externalIdGroupIdx: index("group_messages_external_id_group_idx").on(
+      table.externalMessageId,
+      table.groupExternalId
     ),
   })
 );

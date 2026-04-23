@@ -41,3 +41,5 @@ Thumbs.db
 # ── TypeScript ─────────────────────────────────────────────────
 *.tsbuildinfo
 
+# ── Claude Code (local-only) ───────────────────────────────────
+.claude/worktrees/

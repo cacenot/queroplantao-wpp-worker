@@ -91,6 +91,51 @@ export async function createTestDb(): Promise<{
       WHERE "sender_external_id" IS NOT NULL;
     CREATE INDEX "phone_policies_expires_at_idx_${schemaName}"
       ON "${schemaName}"."phone_policies" ("expires_at") WHERE "expires_at" IS NOT NULL;
+
+    CREATE TYPE "${schemaName}"."messaging_provider_kind" AS ENUM (
+      'whatsapp_zapi', 'whatsapp_whatsmeow', 'whatsapp_business_api', 'telegram_bot'
+    );
+    CREATE TYPE "${schemaName}"."message_moderation_status" AS ENUM (
+      'pending', 'skipped', 'analyzed', 'failed'
+    );
+    CREATE TABLE "${schemaName}"."group_messages" (
+      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "ingestion_dedupe_hash" text NOT NULL,
+      "content_hash" text NOT NULL,
+      "protocol" "${schemaName}"."messaging_protocol" NOT NULL,
+      "provider_kind" "${schemaName}"."messaging_provider_kind" NOT NULL,
+      "provider_instance_id" uuid,
+      "group_external_id" text NOT NULL,
+      "messaging_group_id" uuid,
+      "sender_phone" text,
+      "sender_external_id" text,
+      "sender_name" text,
+      "external_message_id" text NOT NULL,
+      "reference_external_message_id" text,
+      "message_type" text NOT NULL,
+      "message_subtype" text,
+      "has_text" boolean NOT NULL,
+      "normalized_text" text,
+      "media_url" text,
+      "thumbnail_url" text,
+      "mime_type" text,
+      "caption" text,
+      "sent_at" timestamp with time zone NOT NULL,
+      "from_me" boolean NOT NULL DEFAULT false,
+      "is_forwarded" boolean NOT NULL DEFAULT false,
+      "is_edited" boolean NOT NULL DEFAULT false,
+      "moderation_status" "${schemaName}"."message_moderation_status" NOT NULL DEFAULT 'pending',
+      "current_moderation_id" uuid,
+      "removed_at" timestamp with time zone,
+      "first_seen_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "last_seen_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX "group_messages_ingestion_dedupe_hash_idx_${schemaName}"
+      ON "${schemaName}"."group_messages" ("ingestion_dedupe_hash");
+    CREATE INDEX "group_messages_external_id_group_idx_${schemaName}"
+      ON "${schemaName}"."group_messages" ("external_message_id", "group_external_id");
   `);
 
   const db = drizzle(sql, { schema });

@@ -1,4 +1,4 @@
-import { eq, getTableColumns, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import {
   type GroupMessage,
@@ -84,5 +84,20 @@ export class GroupMessagesRepository {
       .update(groupMessages)
       .set({ lastSeenAt: new Date(), updatedAt: new Date() })
       .where(eq(groupMessages.id, id));
+  }
+
+  async markRemoved(externalMessageId: string, groupExternalId: string): Promise<number> {
+    const updated = await this.db
+      .update(groupMessages)
+      .set({ removedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(groupMessages.externalMessageId, externalMessageId),
+          eq(groupMessages.groupExternalId, groupExternalId),
+          isNull(groupMessages.removedAt)
+        )
+      )
+      .returning({ id: groupMessages.id });
+    return updated.length;
   }
 }

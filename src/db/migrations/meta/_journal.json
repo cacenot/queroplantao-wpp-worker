@@ -15,6 +15,13 @@
       "when": 1776831558735,
       "tag": "0001_drop_moderation_configs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776893545563,
+      "tag": "0002_group_messages_removed_at_manual_source",
+      "breakpoints": true
     }
   ]
 }

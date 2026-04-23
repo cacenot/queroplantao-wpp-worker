@@ -133,6 +133,7 @@ function makeGroupMessagesRepo() {
     setModerationStatus: mock(() => Promise.resolve()),
     findById: mock(() => Promise.resolve(null)),
     touchLastSeen: mock(() => Promise.resolve()),
+    markRemoved: mock(() => Promise.resolve(1)),
   };
 }
 

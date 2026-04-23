@@ -290,6 +290,20 @@ Todos os jobs seguem o formato:
 
 Schema completo e validação: `src/config/env.ts`.
 
+## Dimensões operacionais
+
+Ordem de grandeza do workload em produção (relevante para decisões de indexação e capacidade):
+
+- **~1200 grupos monitorados.** Alguns com 1000+ participantes — fan-out de moderação por grupo é alto.
+- **`group_messages` cresce continuamente** (todas as mensagens ingeridas são persistidas). Queries e UPDATEs hot-path (ingestão, moderação, delete) precisam de índice casado com o WHERE — varredura sequencial fica inviável em semanas.
+- **Índices críticos em `group_messages`:**
+  - `ingestion_dedupe_hash` (unique) — dedup no upsert.
+  - `(protocol, group_external_id, sent_at)` — listagem por grupo/janela.
+  - `(external_message_id, group_external_id)` — UPDATE do `markRemoved` após `whatsapp.delete_message`.
+  - `content_hash` — reuso de moderação.
+
+Ao adicionar query nova que toca `group_messages`, verifique `EXPLAIN` antes de merge.
+
 ## Decisões arquiteturais
 
 ### Interfaces de messaging separadas por protocolo

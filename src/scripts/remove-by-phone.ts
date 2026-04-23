@@ -1,111 +1,72 @@
-import { randomUUID } from "node:crypto";
-import postgres from "postgres";
-import { Connection } from "rabbitmq-client";
+import { toE164 } from "../lib/phone.ts";
+import {
+  AllowlistConflictError,
+  InvalidPhoneError,
+  PhoneFilterTooShortError,
+} from "../services/group-messages-removal/index.ts";
+import {
+  buildRemovalRunner,
+  formatPreview,
+  formatResult,
+  parseFlagArgs,
+  promptYesNo,
+} from "./_removal-runner.ts";
 
-const phone = process.argv[2];
-const allDays = process.argv.includes("all");
-const limitArg = process.argv.find((a) => a !== "all" && a !== phone && Number.isFinite(Number(a)));
-const limit = Number(limitArg || "0");
+const rawPhone = process.argv[2];
+const phone = rawPhone ? toE164(rawPhone) : null;
+const { allDays, limit } = parseFlagArgs(process.argv.slice(3));
 
 if (!phone) {
   console.error("Uso: bun run src/scripts/remove-by-phone.ts <telefone> [limit] [all]");
   console.error('Exemplo: bun run src/scripts/remove-by-phone.ts "5511999999999" 100');
-  console.error('         bun run src/scripts/remove-by-phone.ts "5511999999999" all');
+  console.error('         bun run src/scripts/remove-by-phone.ts "+55 11 99999-9999" all');
   console.error('         bun run src/scripts/remove-by-phone.ts "5511999999999" 100 all');
+  console.error("telefone precisa ser formatável como E.164 (aceita com/sem +, com/sem máscara).");
   console.error(
     "limit=0 (default) processa todas as mensagens. all = sem filtro de data (default: somente hoje)."
   );
   process.exit(1);
 }
 
-const DATABASE_URL = process.env.DATABASE_URL;
-const AMQP_URL = process.env.AMQP_URL;
-const AMQP_QUEUE = process.env.AMQP_QUEUE;
+const { service, close } = await buildRemovalRunner();
 
-if (!DATABASE_URL || !AMQP_URL || !AMQP_QUEUE) {
-  console.error("Variáveis obrigatórias: DATABASE_URL, AMQP_URL, AMQP_QUEUE");
-  process.exit(1);
-}
+try {
+  const preview = await service.previewByPhone({ phone, options: { allDays, limit } });
 
-const sql = postgres(DATABASE_URL);
+  if (preview.allowlistConflict) {
+    console.error(`Phone está em allowlist (policy ${preview.allowlistConflict.policyId}).`);
+    console.error(`  Motivo: ${preview.allowlistConflict.reason ?? "(sem motivo)"}`);
+    console.error("  Remova da allowlist antes de rodar.");
+    process.exit(2);
+  }
 
-console.log(
-  `Buscando mensagens com sender_phone ILIKE '%${phone}%'${limit > 0 ? ` (limit: ${limit})` : ""}${allDays ? " (todos os dias)" : " (somente hoje)"}...`
-);
+  console.log(formatPreview(preview));
+  if (preview.blacklistedAlready) {
+    console.log("Phone já está na blacklist global.");
+  }
 
-const rows = await sql<
-  { external_message_id: string; sender_phone: string; group_external_id: string }[]
->`
-  SELECT external_message_id, sender_phone, group_external_id
-  FROM zapi_group_messages
-  WHERE sender_phone ILIKE ${`%${phone}%`}
-    AND removed IS false
-    ${allDays ? sql`` : sql`AND sent_at >= CURRENT_DATE AND sent_at < CURRENT_DATE + INTERVAL '1 day'`}
-  ${limit > 0 ? sql`LIMIT ${limit}` : sql``}
-`;
-
-console.log(`Encontradas ${rows.length} mensagens.`);
-
-if (rows.length === 0) {
-  await sql.end();
-  process.exit(0);
-}
-
-const rabbit = new Connection(AMQP_URL);
-const publisher = rabbit.createPublisher({ confirm: true });
-
-const now = new Date().toISOString();
-let deleteCount = 0;
-
-for (const row of rows) {
-  await publisher.send(
-    { routingKey: AMQP_QUEUE, durable: true },
-    {
-      id: randomUUID(),
-      type: "whatsapp.delete_message",
-      createdAt: now,
-      payload: {
-        messageId: row.external_message_id,
-        phone: row.group_external_id,
-        owner: false,
-      },
+  if (preview.messageCount === 0) {
+    console.log("Nada a fazer.");
+  } else {
+    const confirmed = await promptYesNo("Confirmar? (s/N)");
+    if (!confirmed) {
+      console.log("Abortado.");
+    } else {
+      const result = await service.executeByPhone({ phone, options: { allDays, limit } });
+      console.log(formatResult(result));
     }
-  );
-  console.log(
-    `whatsapp.delete_message: ${row.external_message_id} (grupo: ${row.group_external_id})`
-  );
-  deleteCount++;
+  }
+} catch (err) {
+  if (err instanceof PhoneFilterTooShortError || err instanceof InvalidPhoneError) {
+    console.error(`Erro: ${err.message}`);
+    process.exit(1);
+  }
+  if (err instanceof AllowlistConflictError) {
+    console.error(`Phone está em allowlist (policy ${err.match.policyId}).`);
+    console.error("  Remova da allowlist antes de rodar.");
+    process.exit(2);
+  }
+  throw err;
+} finally {
+  await close();
 }
-
-console.log(`Publicados ${deleteCount} jobs whatsapp.delete_message.`);
-
-const uniquePairs = new Set<string>();
-for (const row of rows) {
-  uniquePairs.add(`${row.sender_phone}:${row.group_external_id}`);
-}
-
-let removeCount = 0;
-
-for (const pair of uniquePairs) {
-  const [senderPhone, groupExternalId] = pair.split(":");
-  await publisher.send(
-    { routingKey: AMQP_QUEUE, durable: true },
-    {
-      id: randomUUID(),
-      type: "whatsapp.remove_participant",
-      createdAt: now,
-      payload: {
-        groupId: groupExternalId,
-        phones: [senderPhone],
-      },
-    }
-  );
-  removeCount++;
-}
-
-console.log(`Publicados ${removeCount} jobs whatsapp.remove_participant.`);
-console.log("Concluído.");
-
-await publisher.close();
-await rabbit.close();
-await sql.end();

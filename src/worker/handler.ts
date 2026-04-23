@@ -83,10 +83,10 @@ async function claimOrFallback(
 async function executeJob(job: JobSchema, deps: ExecuteDeps): Promise<void> {
   switch (job.type) {
     case "whatsapp.delete_message":
-      return deleteMessage(
-        job.payload,
-        resolveExecutor(deps.whatsappGatewayRegistry, job.payload.providerInstanceId)
-      );
+      return deleteMessage(job.payload, {
+        executor: resolveExecutor(deps.whatsappGatewayRegistry, job.payload.providerInstanceId),
+        groupMessagesRepo: deps.groupMessagesRepo,
+      });
     case "whatsapp.remove_participant":
       return removeParticipant(
         job.payload,
