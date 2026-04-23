@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { Redis } from "ioredis";
 import type { Logger } from "pino";
 import type { JobSchema } from "../../jobs/schemas.ts";
-import type { PhonePoliciesService, Protocol } from "../phone-policies/index.ts";
+import type { ContentFilterHit, ContentFilterService } from "../content-filter/index.ts";
+import {
+  type AddPhonePolicyInput,
+  ConflictError,
+  type PhonePoliciesService,
+  type Protocol,
+} from "../phone-policies/index.ts";
 import type { TaskService } from "../task/index.ts";
 
 export type ModerationEnforcementInput = {
@@ -10,6 +16,9 @@ export type ModerationEnforcementInput = {
   groupExternalId: string;
   senderPhone: string | null;
   senderExternalId: string | null;
+  senderName: string | null;
+  normalizedText: string | null;
+  caption: string | null;
   providerInstanceId: string | null;
   externalMessageId: string;
   moderationId: string;
@@ -21,6 +30,8 @@ type ModerationEnforcementServiceOptions = {
   taskService: TaskService;
   redis: Redis;
   logger: Logger;
+  contentFilter?: ContentFilterService;
+  contentFilterEnabled?: boolean;
   // Janela em segundos durante a qual um mesmo (grupo, phone) só é kickado uma vez.
   // O delete não dedupa porque externalMessageId é único por mensagem.
   removeParticipantDedupTtlSeconds?: number;
@@ -33,6 +44,8 @@ export class ModerationEnforcementService {
   private readonly taskService: TaskService;
   private readonly redis: Redis;
   private readonly logger: Logger;
+  private readonly contentFilter: ContentFilterService | undefined;
+  private readonly contentFilterEnabled: boolean;
   private readonly removeDedupTtl: number;
 
   constructor(options: ModerationEnforcementServiceOptions) {
@@ -40,6 +53,8 @@ export class ModerationEnforcementService {
     this.taskService = options.taskService;
     this.redis = options.redis;
     this.logger = options.logger;
+    this.contentFilter = options.contentFilter;
+    this.contentFilterEnabled = options.contentFilterEnabled ?? false;
     this.removeDedupTtl =
       options.removeParticipantDedupTtlSeconds ?? DEFAULT_REMOVE_DEDUP_TTL_SECONDS;
   }
@@ -58,8 +73,58 @@ export class ModerationEnforcementService {
     const bypass = await this.phonePoliciesService.isBypassed(matchInput);
     if (bypass) return;
 
-    const hit = await this.phonePoliciesService.isBlacklisted(matchInput);
-    if (!hit) return;
+    const blacklistHit = await this.phonePoliciesService.isBlacklisted(matchInput);
+
+    // Content-filter: segunda porta de enforcement (determinístico, atrás de feature flag)
+    let contentHit: ContentFilterHit | null = null;
+    if (!blacklistHit && this.contentFilterEnabled && this.contentFilter) {
+      contentHit = this.contentFilter.detect({
+        senderPhone: input.senderPhone,
+        senderName: input.senderName,
+        normalizedText: input.normalizedText,
+        caption: input.caption,
+      });
+
+      if (contentHit) {
+        const { motivo, match } = contentHit;
+        const addInput: AddPhonePolicyInput = {
+          protocol: input.protocol,
+          kind: "blacklist",
+          phone: input.senderPhone,
+          senderExternalId: input.senderExternalId,
+          groupExternalId: null,
+          source: "moderation_auto",
+          reason: `content-filter:${motivo}:${match}`.slice(0, 500),
+          moderationId: input.moderationId,
+        };
+
+        await this.phonePoliciesService.add(addInput).catch((err) => {
+          if (err instanceof ConflictError) return;
+          this.logger.warn(
+            { err, moderationId: input.moderationId, motivo, match },
+            "Falha ao auto-add blacklist via content-filter — segue com enforcement"
+          );
+        });
+
+        this.logger.info(
+          {
+            moderationId: input.moderationId,
+            motivo,
+            match,
+            phone: input.senderPhone,
+            lid: input.senderExternalId,
+          },
+          "Content-filter: hit → auto-blacklist registrado"
+        );
+      }
+    }
+
+    const enforcementReason: "blacklist" | "content-filter" | null = blacklistHit
+      ? "blacklist"
+      : contentHit
+        ? "content-filter"
+        : null;
+    if (!enforcementReason) return;
 
     // Dispatch via Z-API só funciona com phone — match-só-por-LID fica como warn
     // até a gateway suportar LID nativamente.
@@ -68,10 +133,11 @@ export class ModerationEnforcementService {
         {
           moderationId: input.moderationId,
           groupExternalId: input.groupExternalId,
-          policyId: hit.id,
+          reason: enforcementReason,
+          policyId: blacklistHit?.id ?? null,
           senderExternalId: input.senderExternalId,
         },
-        "Enforcement: blacklist matchou por LID mas senderPhone é null — dispatch impossível via Z-API atual"
+        `Enforcement: ${enforcementReason} matchou por LID mas senderPhone é null — dispatch impossível via Z-API atual`
       );
       return;
     }
@@ -130,10 +196,11 @@ export class ModerationEnforcementService {
         moderationId: input.moderationId,
         groupExternalId: input.groupExternalId,
         phone,
-        policyId: hit.id,
+        reason: enforcementReason,
+        policyId: blacklistHit?.id ?? null,
         kicked: shouldKick,
       },
-      "Enforcement: blacklist hit → enqueued delete_message + remove_participant"
+      `Enforcement: ${enforcementReason} hit → enqueued delete_message + remove_participant`
     );
   }
 }

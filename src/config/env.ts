@@ -61,6 +61,11 @@ const envSchema = z.object({
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
 
   // ─── MODERAÇÃO ───────────────────────────────────────────────────────────────
+  // Filtro determinístico de conteúdo — liga via env após 1-2 dias observando o LLM
+  MODERATION_CONTENT_FILTER_ENABLED: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
   // Janela (ms) do bucket de dedupe de ingestão — colapsa a mesma mensagem em várias instâncias Z-API
   INGESTION_DEDUPE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   // Janela (ms) de reuso por contentHash + moderationVersion — default: 15 dias

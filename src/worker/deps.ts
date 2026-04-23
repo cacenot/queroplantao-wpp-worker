@@ -11,6 +11,7 @@ import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { declareRetryTopology } from "../lib/retry-topology.ts";
+import { ContentFilterService } from "../services/content-filter/index.ts";
 import { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
 import { PhonePoliciesService } from "../services/phone-policies/index.ts";
 import { TaskService } from "../services/task/index.ts";
@@ -44,11 +45,14 @@ export async function buildDeps() {
   });
 
   const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
+  const contentFilter = new ContentFilterService();
   const enforcement = new ModerationEnforcementService({
     phonePoliciesService,
     taskService,
     redis,
     logger,
+    contentFilter,
+    contentFilterEnabled: env.MODERATION_CONTENT_FILTER_ENABLED,
   });
 
   // Config de moderação é arquivo .md versionado em `src/ai/moderation/versions/`.
