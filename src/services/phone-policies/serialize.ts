@@ -7,6 +7,7 @@ export function toPhonePolicyView(row: PhonePolicyRow): PhonePolicyView {
     protocol: row.protocol as Protocol,
     kind: row.kind,
     phone: row.phone,
+    waId: row.waId,
     senderExternalId: row.senderExternalId,
     groupExternalId: row.groupExternalId,
     source: row.source,

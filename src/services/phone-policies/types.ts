@@ -10,6 +10,7 @@ export type PhonePolicyView = {
   protocol: Protocol;
   kind: PhonePolicyKind;
   phone: string | null;
+  waId?: string | null;
   senderExternalId: string | null;
   groupExternalId: string | null;
   source: PhonePolicySource;
@@ -26,6 +27,7 @@ export type AddPhonePolicyInput = {
   protocol: Protocol;
   kind: PhonePolicyKind;
   phone?: string | null;
+  waId?: string | null;
   senderExternalId?: string | null;
   groupExternalId?: string | null;
   source?: PhonePolicySource;
@@ -49,6 +51,7 @@ export type PhonePolicyMatchInput = {
   protocol: Protocol;
   groupExternalId: string;
   phone: string | null;
+  waId?: string | null;
   senderExternalId: string | null;
 };
 

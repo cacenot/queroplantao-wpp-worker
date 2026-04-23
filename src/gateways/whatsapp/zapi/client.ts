@@ -116,6 +116,18 @@ export class ZApiClient implements WhatsAppProvider {
   }
 
   /**
+   * GET /phone-exists/{phone}
+   * Docs: https://developer.z-api.io/contacts/get-iswhatsapp
+   * Aceita múltiplos formatos; `link` contém o número canonical que o WA usa.
+   */
+  async phoneExists(phone: string): Promise<{ exists: boolean; link: string | null }> {
+    const digits = toZapiDigits(phone) ?? phone.replace(/\D/g, "");
+    const response = await this.request(`phone-exists/${digits}`, { method: "GET" });
+    const body = (await response.json()) as { exists: boolean; link?: string };
+    return { exists: body.exists === true, link: body.link ?? null };
+  }
+
+  /**
    * POST /remove-participant
    * Docs: https://developer.z-api.io/group/remove-participant
    */

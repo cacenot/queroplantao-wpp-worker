@@ -3,7 +3,7 @@ import type {
   PhonePoliciesRepository,
 } from "../../db/repositories/phone-policies-repository.ts";
 import type { NewPhonePolicyRow } from "../../db/schema/phone-policies.ts";
-import { toE164 } from "../../lib/phone.ts";
+import { rawWaIdCandidate, toE164 } from "../../lib/phone.ts";
 import { toPhonePolicyView } from "./serialize.ts";
 import {
   type AddPhonePolicyInput,
@@ -40,6 +40,7 @@ export class PhonePoliciesService {
       protocol: input.protocol,
       kind: input.kind,
       phone,
+      waId: input.waId ?? null,
       senderExternalId,
       groupExternalId: input.groupExternalId ?? null,
       source: input.source ?? "manual",
@@ -107,12 +108,14 @@ export class PhonePoliciesService {
   ): Promise<PhonePolicyView | null> {
     const phone = toE164(input.phone);
     const senderExternalId = input.senderExternalId?.trim() || null;
-    if (!phone && !senderExternalId) return null;
+    // Usa waId explícito se passado; caso contrário deriva do raw phone para match alternativo.
+    const waId = input.waId !== undefined ? input.waId : rawWaIdCandidate(input.phone);
+    if (!phone && !waId && !senderExternalId) return null;
 
     const row = await this.deps.repo.findMatch(
       input.protocol,
       kind,
-      { phone, senderExternalId },
+      { phone, waId: waId ?? null, senderExternalId },
       input.groupExternalId
     );
     return row ? toPhonePolicyView(row) : null;

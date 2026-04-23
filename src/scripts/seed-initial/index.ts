@@ -3,6 +3,7 @@ import { env } from "../../config/env.ts";
 import { createDbConnection, createDrizzleDb } from "../../db/client.ts";
 import { MessagingGroupsRepository } from "../../db/repositories/messaging-groups-repository.ts";
 import { MessagingProviderInstanceRepository } from "../../db/repositories/messaging-provider-instance-repository.ts";
+import { PhonePoliciesRepository } from "../../db/repositories/phone-policies-repository.ts";
 import { ZApiClient } from "../../gateways/whatsapp/zapi/client.ts";
 import { logger } from "../../lib/logger.ts";
 import { QpAdminApiClient } from "../../lib/qp-admin-api.ts";
@@ -13,6 +14,8 @@ import {
   MessagingProviderInstanceService,
   maskToken,
 } from "../../services/messaging-provider-instance/index.ts";
+import { PhonePoliciesService } from "../../services/phone-policies/index.ts";
+import { seedPhonePolicies } from "./phone-policies.ts";
 
 /**
  * Seed inicial idempotente para um ambiente novo (inclusive prod).
@@ -75,6 +78,9 @@ const sql = createDbConnection();
 const db = createDrizzleDb(sql);
 
 const instanceRepo = new MessagingProviderInstanceRepository(db);
+const phonePoliciesRepo = new PhonePoliciesRepository(db);
+const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
+
 const instanceService = new MessagingProviderInstanceService({
   repo: instanceRepo,
   redis,
@@ -156,6 +162,25 @@ try {
   // — Etapa 2: sync de grupos a partir do QP Admin API
   const result = await groupSyncService.syncFromAdminApi();
   logger.info({ step: "sync-groups", ...result }, "Sync de grupos concluído");
+
+  // — Etapa 3: phone_policies (blacklist + bypass via Z-API phone-exists)
+  const enabledRows = await instanceRepo.listEnabledZApiRows();
+  const firstRow = enabledRows[0];
+  if (!firstRow) {
+    logger.warn(
+      { step: "phone-policies" },
+      "Sem Z-API instance ativa — pulando seed de phone_policies"
+    );
+  } else {
+    const zapiClient = new ZApiClient({
+      providerInstanceId: firstRow.providerId,
+      instance_id: firstRow.instanceId,
+      instance_token: firstRow.instanceToken,
+      client_token: firstRow.customClientToken ?? env.ZAPI_CLIENT_TOKEN,
+    });
+    const policiesResult = await seedPhonePolicies(phonePoliciesService, zapiClient, logger);
+    logger.info({ step: "phone-policies", ...policiesResult }, "Seed de phone_policies concluído");
+  }
 
   logger.info("Seed inicial concluído com sucesso");
 } finally {

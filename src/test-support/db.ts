@@ -64,6 +64,7 @@ export async function createTestDb(): Promise<{
       "protocol" "${schemaName}"."messaging_protocol" NOT NULL,
       "kind" "${schemaName}"."phone_policy_kind" NOT NULL,
       "phone" text,
+      "wa_id" text,
       "sender_external_id" text,
       "group_external_id" text,
       "source" "${schemaName}"."phone_policy_source" NOT NULL DEFAULT 'manual',
@@ -75,7 +76,7 @@ export async function createTestDb(): Promise<{
       "created_at" timestamp with time zone NOT NULL DEFAULT now(),
       "updated_at" timestamp with time zone NOT NULL DEFAULT now(),
       CONSTRAINT "phone_policies_identifier_present_${schemaName}"
-        CHECK ("phone" IS NOT NULL OR "sender_external_id" IS NOT NULL)
+        CHECK ("phone" IS NOT NULL OR "sender_external_id" IS NOT NULL OR "wa_id" IS NOT NULL)
     );
     CREATE UNIQUE INDEX "phone_policies_unique_phone_idx_${schemaName}"
       ON "${schemaName}"."phone_policies" ("protocol", "kind", "phone", COALESCE("group_external_id", ''))
@@ -91,6 +92,9 @@ export async function createTestDb(): Promise<{
       WHERE "sender_external_id" IS NOT NULL;
     CREATE INDEX "phone_policies_expires_at_idx_${schemaName}"
       ON "${schemaName}"."phone_policies" ("expires_at") WHERE "expires_at" IS NOT NULL;
+    CREATE INDEX "phone_policies_wa_id_lookup_idx_${schemaName}"
+      ON "${schemaName}"."phone_policies" ("protocol", "kind", "wa_id")
+      WHERE "wa_id" IS NOT NULL;
 
     CREATE TYPE "${schemaName}"."messaging_provider_kind" AS ENUM (
       'whatsapp_zapi', 'whatsapp_whatsmeow', 'whatsapp_business_api', 'telegram_bot'

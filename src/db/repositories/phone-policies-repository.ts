@@ -27,6 +27,7 @@ export type PhonePoliciesPagination = {
 
 export type PhonePolicyFindMatchInput = {
   phone: string | null;
+  waId?: string | null;
   senderExternalId: string | null;
 };
 
@@ -72,6 +73,9 @@ export class PhonePoliciesRepository {
     const identifierClauses: SQL[] = [];
     if (identifiers.phone !== null) {
       identifierClauses.push(eq(phonePolicies.phone, identifiers.phone));
+    }
+    if (identifiers.waId != null) {
+      identifierClauses.push(eq(phonePolicies.waId, identifiers.waId));
     }
     if (identifiers.senderExternalId !== null) {
       identifierClauses.push(eq(phonePolicies.senderExternalId, identifiers.senderExternalId));

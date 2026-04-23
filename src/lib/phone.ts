@@ -30,3 +30,16 @@ export function toZapiDigits(e164: string | null): string | null {
   if (e164 == null) return null;
   return e164.startsWith("+") ? e164.slice(1) : e164;
 }
+
+/**
+ * Extrai dígitos crus de um phone raw para uso como `wa_id` em lookups.
+ * Retorna null se fora do range de dígitos esperado (8–15).
+ *
+ * Só para match — persistência sempre em E.164.
+ */
+export function rawWaIdCandidate(raw: string | null): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return digits;
+}

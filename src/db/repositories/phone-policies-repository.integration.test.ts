@@ -185,6 +185,20 @@ describe.skipIf(!INTEGRATION)("PhonePoliciesRepository (integration)", () => {
       expect(matchByPhone?.id).toBe(byPhone.id);
     });
 
+    it("matcha por wa_id quando phone é null", async () => {
+      const created = await repo.create(
+        buildRow({ phone: null, waId: "554791778115", senderExternalId: "lid-wa@lid" })
+      );
+      // Lookup só por waId (sem phone e sem LID)
+      const matchByWaId = await repo.findMatch(
+        "whatsapp",
+        "blacklist",
+        { phone: null, waId: "554791778115", senderExternalId: null },
+        "grp-x"
+      );
+      expect(matchByWaId?.id).toBe(created.id);
+    });
+
     it("retorna null quando ambos identificadores são null", async () => {
       const match = await repo.findMatch(
         "whatsapp",

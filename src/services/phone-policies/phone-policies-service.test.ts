@@ -10,6 +10,7 @@ function makeRow(overrides: Partial<PhonePolicyRow> = {}): PhonePolicyRow {
     protocol: "whatsapp",
     kind: "blacklist",
     phone: "+5511999990001",
+    waId: null,
     senderExternalId: null,
     groupExternalId: null,
     source: "manual",
@@ -209,7 +210,7 @@ describe("PhonePoliciesService", () => {
       expect(repo.findMatch).toHaveBeenCalledWith(
         "whatsapp",
         "blacklist",
-        { phone: "+5511999990020", senderExternalId: null },
+        { phone: "+5511999990020", waId: "5511999990020", senderExternalId: null },
         "grp-x"
       );
     });
@@ -230,7 +231,7 @@ describe("PhonePoliciesService", () => {
       expect(repo.findMatch).toHaveBeenCalledWith(
         "whatsapp",
         "bypass",
-        { phone: "+5511999990021", senderExternalId: null },
+        { phone: "+5511999990021", waId: "5511999990021", senderExternalId: null },
         "grp-x"
       );
     });
@@ -250,7 +251,7 @@ describe("PhonePoliciesService", () => {
       expect(repo.findMatch).toHaveBeenCalledWith(
         "whatsapp",
         "blacklist",
-        { phone: null, senderExternalId: "1234567890@lid" },
+        { phone: null, waId: null, senderExternalId: "1234567890@lid" },
         "grp-x"
       );
     });
@@ -299,7 +300,7 @@ describe("PhonePoliciesService", () => {
       expect(repo.findMatch).toHaveBeenCalledWith(
         "whatsapp",
         "blacklist",
-        { phone: "+5511999990023", senderExternalId: null },
+        { phone: "+5511999990023", waId: "5511999990023", senderExternalId: null },
         "grp-x"
       );
     });

@@ -28,9 +28,12 @@ export const phonePolicies = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     protocol: messagingProtocolEnum("protocol").notNull(),
     kind: phonePolicyKindEnum("kind").notNull(),
-    // Pelo menos um de phone OU sender_external_id (LID) precisa ser não-null — CHECK abaixo.
+    // Pelo menos um de phone, sender_external_id (LID) ou wa_id — CHECK abaixo.
     phone: text("phone"),
     senderExternalId: text("sender_external_id"),
+    // Formato alternativo usado pelo WA (ex: BR 12-dig sem 9, pré-2016). Nunca use como
+    // identificador canônico — phone sempre E.164. Serve só pra match em lookup.
+    waId: text("wa_id"),
     // NULL = política global (vale para qualquer grupo monitorado do protocolo)
     groupExternalId: text("group_external_id"),
     source: phonePolicySourceEnum("source").notNull().default("manual"),
@@ -50,7 +53,7 @@ export const phonePolicies = pgTable(
   (table) => ({
     identifierPresent: check(
       "phone_policies_identifier_present",
-      sql`${table.phone} IS NOT NULL OR ${table.senderExternalId} IS NOT NULL`
+      sql`${table.phone} IS NOT NULL OR ${table.senderExternalId} IS NOT NULL OR ${table.waId} IS NOT NULL`
     ),
     uniquePhoneIdx: uniqueIndex("phone_policies_unique_phone_idx")
       .on(table.protocol, table.kind, table.phone, sql`COALESCE(${table.groupExternalId}, '')`)
@@ -72,6 +75,9 @@ export const phonePolicies = pgTable(
     expiresAtIdx: index("phone_policies_expires_at_idx")
       .on(table.expiresAt)
       .where(sql`${table.expiresAt} IS NOT NULL`),
+    waIdLookupIdx: index("phone_policies_wa_id_lookup_idx")
+      .on(table.protocol, table.kind, table.waId)
+      .where(sql`${table.waId} IS NOT NULL`),
   })
 );
 
