@@ -30,7 +30,6 @@ export async function buildRemovalRunner(): Promise<RemovalRunner> {
   const taskService = new TaskService({
     repo: new TaskRepository(db),
     publisher,
-    queueName: env.AMQP_QUEUE,
   });
   const service = new GroupMessagesRemovalService({
     db,

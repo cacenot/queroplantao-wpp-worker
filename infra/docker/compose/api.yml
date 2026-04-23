@@ -1,10 +1,10 @@
+# wpp-api — serviço HTTP. Coolify aponta pra este compose ou diretamente pra
+# infra/docker/api.Dockerfile.
 services:
   api:
-    build: .
-    command: bun run src/api/index.ts
-    environment:
-      SERVICE_NAME: wpp-api
-      NODE_ENV: production
+    build:
+      context: ../../..
+      dockerfile: infra/docker/api.Dockerfile
     ports:
       - "3000:3000"
     healthcheck:

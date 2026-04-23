@@ -125,6 +125,7 @@ A API expõe `POST`/`GET`/`PATCH /providers/instances` para criar, consultar, ha
 - `src/gateways/gateway.ts`
 - `src/gateways/gateway-registry.ts`
 - `src/gateways/types.ts`
-- `src/worker/index.ts`
-- `src/worker/handler.ts`
+- `src/workers/whatsapp-zapi/index.ts`
+- `src/workers/whatsapp-zapi/handler.ts`
+- `src/workers/shared/zapi-bootstrap.ts`
 - `src/services/provider-registry/provider-registry-read-service.ts`

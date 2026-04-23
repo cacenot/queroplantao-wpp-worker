@@ -8,6 +8,7 @@ import { MessagingProviderInstanceRepository } from "../db/repositories/messagin
 import { PhonePoliciesRepository } from "../db/repositories/phone-policies-repository.ts";
 import { TaskRepository } from "../db/repositories/task-repository.ts";
 import { ZApiClient } from "../gateways/whatsapp/zapi/client.ts";
+import { declareJobTopologies } from "../jobs/topology.ts";
 import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
@@ -27,6 +28,10 @@ export async function buildDeps() {
   const rabbit = createAmqpConnection();
   const publisher = rabbit.createPublisher({ confirm: true, maxAttempts: 2 });
 
+  // Declara topologies (zapi + moderation) idempotentemente. Garante que as filas
+  // existam antes da API começar a publicar, mesmo que nenhum worker tenha subido.
+  await declareJobTopologies(rabbit);
+
   // --- Repositórios ---
   const taskRepo = new TaskRepository(db);
   const instanceRepo = new MessagingProviderInstanceRepository(db);
@@ -39,7 +44,6 @@ export async function buildDeps() {
   const taskService = new TaskService({
     repo: taskRepo,
     publisher,
-    queueName: env.AMQP_QUEUE,
   });
 
   const instanceService = new MessagingProviderInstanceService({

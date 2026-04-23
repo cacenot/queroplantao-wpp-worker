@@ -1,0 +1,17 @@
+# wpp-zapi-worker — consome wpp.zapi (delete_message + remove_participant).
+# Health server na porta 3011. Coolify aponta pra este compose ou diretamente
+# pra infra/docker/worker-zapi.Dockerfile.
+services:
+  worker-zapi:
+    build:
+      context: ../../..
+      dockerfile: infra/docker/worker-zapi.Dockerfile
+    ports:
+      - "3011:3011"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3011/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

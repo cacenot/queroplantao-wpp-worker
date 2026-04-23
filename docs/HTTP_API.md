@@ -360,8 +360,11 @@ Resposta quando degradado — conexao AMQP perdida (`503 Service Unavailable`):
 
 - `HTTP_PORT`: porta do servidor HTTP (default `3000`)
 - `HTTP_API_KEY`: chave obrigatoria para `POST /tasks`
-- `AMQP_QUEUE`: nome da fila para onde as tasks serao publicadas
+- `AMQP_ZAPI_QUEUE`: fila do worker zapi (default `wpp.zapi`)
+- `AMQP_MODERATION_QUEUE`: fila do worker de moderação (default `wpp.moderation`)
 - `REDIS_URL`: URL de conexao Redis para rate limiting distribuido
+
+Roteamento por `job.type` em [`src/jobs/routing.ts`](../src/jobs/routing.ts).
 
 ## Observacoes operacionais
 
@@ -374,29 +377,27 @@ Resposta quando degradado — conexao AMQP perdida (`503 Service Unavailable`):
 - [Docker](https://docs.docker.com/get-docker/) e Docker Compose
 - [Bun](https://bun.sh/)
 
-### Subindo o broker AMQP (LavinMQ)
+### Subindo as dependências locais (LavinMQ + Redis + Postgres)
 
 ```bash
-docker compose up -d
+docker compose -f infra/docker/compose/dev-deps.yml up -d
 ```
 
-Isso inicia o LavinMQ e Redis com:
+Isso inicia LavinMQ, Redis e Postgres com:
 
 - **AMQP**: `amqp://guest:guest@localhost:5672`
 - **Management UI**: `http://localhost:15672` (user: `guest`, password: `guest`)
 - **Redis**: `redis://localhost:6379`
+- **Postgres**: `postgres://postgres:secret@localhost:5432/queroplantao_messaging`
 
-### Executando o worker
+### Executando os workers
+
+Configurar `.env` (copiar de `.env.example`) e rodar cada worker em terminal separado:
 
 ```bash
-export AMQP_URL=amqp://guest:guest@localhost:5672
-export AMQP_QUEUE=tasks
-export ZAPI_BASE_URL=https://api.z-api.io
-export ZAPI_INSTANCES='[{"instance_id":"i1","instance_token":"t1","client_token":"c1"}]'
-export HTTP_API_KEY=dev-secret
-export REDIS_URL=redis://localhost:6379
-
-bun run src/worker/index.ts
+bun run dev:worker:zapi          # consumer wpp.zapi
+bun run dev:worker:moderation    # consumer wpp.moderation
+bun run dev:api                  # API HTTP
 ```
 
 ### Executando os testes

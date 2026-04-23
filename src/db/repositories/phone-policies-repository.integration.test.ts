@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 
 process.env.DATABASE_URL ??= "postgres://postgres:secret@localhost:5432/queroplantao_messaging";
 process.env.AMQP_URL ??= "amqp://localhost";
-process.env.AMQP_QUEUE ??= "wpp.actions";
 process.env.REDIS_URL ??= "redis://localhost:6379";
 process.env.HTTP_API_KEY ??= "test-key";
 process.env.ZAPI_BASE_URL ??= "https://test.example.com";

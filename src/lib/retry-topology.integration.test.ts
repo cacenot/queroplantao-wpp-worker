@@ -3,7 +3,6 @@ import { Connection } from "rabbitmq-client";
 
 process.env.DATABASE_URL ??= "postgres://postgres:secret@localhost:5432/queroplantao_messaging";
 process.env.AMQP_URL ??= "amqp://guest:guest@localhost:5672";
-process.env.AMQP_QUEUE ??= "wpp.actions";
 process.env.REDIS_URL ??= "redis://localhost:6379";
 process.env.HTTP_API_KEY ??= "test-key";
 process.env.ZAPI_BASE_URL ??= "https://test.example.com";
@@ -29,6 +28,23 @@ describe.skipIf(!INTEGRATION)("retry topology (integration, LavinMQ)", () => {
     expect(t.topology.mainQueue).toMatch(/\.main$/);
     expect(t.topology.retryQueue).toMatch(/\.retry$/);
     expect(t.topology.dlqName).toMatch(/\.dlq$/);
+  });
+
+  it("declara fila com x-max-priority quando priority informada", async () => {
+    const t = await createTestTopology({ retryDelayMs: 200, priority: 10 });
+    cleanups.push(t.cleanup);
+
+    expect(t.topology.priority).toBe(10);
+    // Redeclarar com priority diferente deve falhar (confirma que o arg foi aplicado)
+    const other = new Connection(process.env.AMQP_URL as string);
+    await expect(
+      other.queueDeclare({
+        queue: t.topology.mainQueue,
+        durable: true,
+        arguments: { "x-max-priority": 7 },
+      })
+    ).rejects.toThrow();
+    await other.close();
   });
 
   it("end-to-end: publicar em retry → após TTL a mensagem aparece em main (via DLX)", async () => {

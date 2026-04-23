@@ -76,7 +76,7 @@ bun run remove-by-phone "5511999999999" all
 bun run remove-by-phone "5511999999999" 50 all
 ```
 
-**Env necessário:** `DATABASE_URL`, `AMQP_URL`, `AMQP_QUEUE`
+**Env necessário:** `DATABASE_URL`, `AMQP_URL` (rota por `job.type` é decidida em `src/jobs/routing.ts`)
 
 ---
 
@@ -100,7 +100,7 @@ bun run remove-spam "https://tk7.games" "bit.ly" 100
 bun run remove-spam "encurta.ai" all
 ```
 
-**Env necessário:** `DATABASE_URL`, `AMQP_URL`, `AMQP_QUEUE`
+**Env necessário:** `DATABASE_URL`, `AMQP_URL` (rota por `job.type` é decidida em `src/jobs/routing.ts`)
 
 ---
 
@@ -118,7 +118,7 @@ bun run spam-watcher
 |---|---|
 | `SPAM_FILTERS` | Filtros separados por vírgula, ex.: `"tk7.games,encurta.ai"` |
 | `SPAM_INTERVAL_MS` | Intervalo entre execuções em ms, ex.: `60000` |
-| `DATABASE_URL`, `AMQP_URL`, `AMQP_QUEUE` | Igual ao `remove-spam` |
+| `DATABASE_URL`, `AMQP_URL` | Igual ao `remove-spam` |
 
 ---
 

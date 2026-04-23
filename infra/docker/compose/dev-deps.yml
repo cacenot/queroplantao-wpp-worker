@@ -1,3 +1,5 @@
+# Dependências locais de desenvolvimento — LavinMQ + Redis + Postgres.
+# Usar: docker compose -f infra/docker/compose/dev-deps.yml up -d
 services:
   lavinmq:
     image: cloudamqp/lavinmq:latest

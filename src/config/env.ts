@@ -6,15 +6,19 @@ const envSchema = z.object({
 
   // ─── AMQP ────────────────────────────────────────────────────────────────────
   AMQP_URL: z.string().url({ message: "AMQP_URL deve ser uma URL válida" }),
-  AMQP_QUEUE: z.string().min(1),
-  // Mensagens processadas simultaneamente antes do ACK
-  AMQP_PREFETCH: z.coerce.number().int().positive().default(5),
+  // Fila do whatsapp-zapi worker (delete_message + remove_participant). Usa x-max-priority=10
+  // pra garantir delete (priority 10) antes de remove (priority 7).
+  AMQP_ZAPI_QUEUE: z.string().min(1).default("wpp.zapi"),
+  // Prefetch zapi: 1 (serial) — lease Z-API já coordena acesso por provider
+  AMQP_ZAPI_PREFETCH: z.coerce.number().int().positive().default(1),
+  // Fila do moderation worker (moderate_group_message). Sem priority (um único tipo).
+  AMQP_MODERATION_QUEUE: z.string().min(1).default("wpp.moderation"),
+  // Prefetch moderation: 5 — LLM é I/O bound e não toca Z-API, paralelismo ok
+  AMQP_MODERATION_PREFETCH: z.coerce.number().int().positive().default(5),
   // TTL (ms) da fila de retry — delay antes de cada re-tentativa
   AMQP_RETRY_DELAY_MS: z.coerce.number().int().positive().default(120000),
   // Número máximo de retries antes do DLQ. Total de execuções = maxRetries + 1.
   AMQP_RETRY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
-  // Opcional — default: ${AMQP_QUEUE}.dlq
-  AMQP_DLQ_NAME: z.string().optional(),
 
   // ─── REDIS ───────────────────────────────────────────────────────────────────
   REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),
@@ -23,7 +27,10 @@ const envSchema = z.object({
   // 0 = porta aleatória, útil em testes
   HTTP_PORT: z.coerce.number().int().nonnegative().default(3000),
   HTTP_API_KEY: z.string().min(1, { message: "HTTP_API_KEY é obrigatória" }),
-  WORKER_HEALTH_PORT: z.coerce.number().int().nonnegative().default(3001),
+  // Health server expostos por cada worker (Coolify / Docker HEALTHCHECK).
+  // Portas distintas pra evitar EADDRINUSE quando rodando no mesmo host.
+  WORKER_ZAPI_HEALTH_PORT: z.coerce.number().int().nonnegative().default(3011),
+  WORKER_MODERATION_HEALTH_PORT: z.coerce.number().int().nonnegative().default(3012),
 
   // ─── Z-API ───────────────────────────────────────────────────────────────────
   ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),

@@ -1,15 +1,15 @@
 import type { Redis } from "ioredis";
-import { env } from "../config/env.ts";
-import type { Db } from "../db/client.ts";
-import { ProviderGateway } from "../gateways/gateway.ts";
-import { ProviderGatewayRegistry } from "../gateways/gateway-registry.ts";
-import type { MessagingProviderExecution } from "../gateways/types.ts";
-import type { WhatsAppProvider } from "../gateways/whatsapp/types.ts";
-import { ZApiClient } from "../gateways/whatsapp/zapi/client.ts";
-import type { ZApiInstanceConfig } from "../gateways/whatsapp/zapi/types.ts";
-import { logger } from "../lib/logger.ts";
-import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
-import type { ZApiProviderRegistryRow } from "../services/provider-registry/schemas.ts";
+import { env } from "../../config/env.ts";
+import type { Db } from "../../db/client.ts";
+import { ProviderGateway } from "../../gateways/gateway.ts";
+import { ProviderGatewayRegistry } from "../../gateways/gateway-registry.ts";
+import type { MessagingProviderExecution } from "../../gateways/types.ts";
+import type { WhatsAppProvider } from "../../gateways/whatsapp/types.ts";
+import { ZApiClient } from "../../gateways/whatsapp/zapi/client.ts";
+import type { ZApiInstanceConfig } from "../../gateways/whatsapp/zapi/types.ts";
+import { logger } from "../../lib/logger.ts";
+import { ProviderRegistryReadService } from "../../services/provider-registry/provider-registry-read-service.ts";
+import type { ZApiProviderRegistryRow } from "../../services/provider-registry/schemas.ts";
 
 function mapExecutionStrategy(instance: {
   executionStrategy: "leased" | "passthrough";

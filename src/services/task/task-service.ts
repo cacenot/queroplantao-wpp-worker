@@ -1,36 +1,39 @@
 import type { TaskRepository } from "../../db/repositories/task-repository.ts";
 import type { Task } from "../../db/schema/tasks.ts";
+import { priorityForJob, queueForJob } from "../../jobs/routing.ts";
 import type { JobSchema } from "../../jobs/schemas.ts";
 import { logger } from "../../lib/logger.ts";
 import type { EnqueueResult, PaginationMeta, TaskListFilters, TaskView } from "./types.ts";
 
+type PublishEnvelope = {
+  routingKey: string;
+  durable: boolean;
+  priority?: number;
+};
+
 type Publisher = {
-  send(envelope: { routingKey: string; durable: boolean }, body: unknown): Promise<void>;
+  send(envelope: PublishEnvelope, body: unknown): Promise<void>;
 };
 
 type TaskServiceOptions = {
   repo: TaskRepository;
   publisher?: Publisher;
-  queueName?: string;
 };
 
 export class TaskService {
   private readonly repo: TaskRepository;
   private readonly publisher?: Publisher;
-  private readonly queueName?: string;
 
   constructor(options: TaskServiceOptions) {
     this.repo = options.repo;
     this.publisher = options.publisher;
-    this.queueName = options.queueName;
   }
 
   async enqueue(jobs: JobSchema[]): Promise<EnqueueResult> {
-    if (!this.publisher || !this.queueName) {
-      throw new Error("TaskService: publisher e queueName são obrigatórios para enqueue");
+    if (!this.publisher) {
+      throw new Error("TaskService: publisher é obrigatório para enqueue");
     }
     const publisher = this.publisher;
-    const queueName = this.queueName;
 
     const rows = jobs.map((job) => ({
       id: job.id,
@@ -50,7 +53,14 @@ export class TaskService {
         .filter((job) => insertedSet.has(job.id))
         .map(async (job) => {
           try {
-            await publisher.send({ routingKey: queueName, durable: true }, job);
+            await publisher.send(
+              {
+                routingKey: queueForJob(job.type),
+                durable: true,
+                priority: priorityForJob(job.type),
+              },
+              job
+            );
             await this.repo.markQueued(job.id);
           } catch (err) {
             logger.warn(

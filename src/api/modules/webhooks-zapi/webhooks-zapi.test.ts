@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 const WEBHOOK_SECRET = "test-webhook-secret";
 
 process.env.AMQP_URL = "amqp://localhost";
-process.env.AMQP_QUEUE = "test-queue";
 process.env.ZAPI_BASE_URL = "https://test.example.com";
 process.env.ZAPI_INSTANCES = JSON.stringify([
   { instance_id: "i1", instance_token: "t1", client_token: "c1" },

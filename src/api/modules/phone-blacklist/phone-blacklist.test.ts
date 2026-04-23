@@ -4,7 +4,6 @@ const VALID_API_KEY = "test-api-key-secret";
 const VALID_ID = "00000000-0000-0000-0000-000000000001";
 
 process.env.AMQP_URL = "amqp://localhost";
-process.env.AMQP_QUEUE = "test-queue";
 process.env.ZAPI_BASE_URL = "https://test.example.com";
 process.env.ZAPI_CLIENT_TOKEN = "test-client-token";
 process.env.HTTP_API_KEY = VALID_API_KEY;

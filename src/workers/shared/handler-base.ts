@@ -2,62 +2,35 @@ import type { Logger } from "pino";
 import type { AsyncMessage, Publisher } from "rabbitmq-client";
 import { ConsumerStatus } from "rabbitmq-client";
 import { z } from "zod";
-import { deleteMessage } from "../actions/whatsapp/delete-message.ts";
-import {
-  type ModerateFn,
-  moderateGroupMessage,
-} from "../actions/whatsapp/moderate-group-message.ts";
-import { removeParticipant } from "../actions/whatsapp/remove-participant.ts";
-import type { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
-import type { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
-import type { GatewayRegistry } from "../gateways/gateway-registry.ts";
-import type { WhatsAppExecutor, WhatsAppProvider } from "../gateways/whatsapp/types.ts";
-import { type JobSchema, jobSchema } from "../jobs/schemas.ts";
-import { NonRetryableError } from "../lib/errors.ts";
-import { logger } from "../lib/logger.ts";
-import type { RetryTopology } from "../lib/retry-topology.ts";
-import { Sentry } from "../lib/sentry.ts";
-import type { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
-import type { TaskService } from "../services/task/index.ts";
+import { dlqForJob, priorityForJob, retryQueueForJob } from "../../jobs/routing.ts";
+import { type JobSchema, jobSchema } from "../../jobs/schemas.ts";
+import { NonRetryableError } from "../../lib/errors.ts";
+import { logger } from "../../lib/logger.ts";
+import { Sentry } from "../../lib/sentry.ts";
+import type { TaskService } from "../../services/task/index.ts";
 
 type JobLogger = Logger;
 
-interface JobHandlerOptions {
-  whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
-  moderate: ModerateFn;
+export type ExecuteJobFn = (job: JobSchema) => Promise<void>;
+
+export type JobHandlerOptions = {
+  /**
+   * Executa o job. Deve fazer um switch restrito aos tipos que este worker processa
+   * e lançar `NonRetryableError` caso receba um tipo fora do seu escopo (guarda contra
+   * routing quebrado — mensagem vai direto pra DLQ do tipo correto).
+   */
+  executeJob: ExecuteJobFn;
   taskService: TaskService;
-  moderationsRepo: MessageModerationsRepository;
-  groupMessagesRepo: GroupMessagesRepository;
-  enforcement: ModerationEnforcementService;
   publisher: Publisher;
-  topology: RetryTopology;
+  maxRetries: number;
   onSuccess?: () => void;
-}
+};
 
-interface ExecuteDeps {
-  whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
-  moderate: ModerateFn;
-  moderationsRepo: MessageModerationsRepository;
-  groupMessagesRepo: GroupMessagesRepository;
-  enforcement: ModerationEnforcementService;
-}
-
-interface PublishDeps {
+type PublishDeps = {
   publisher: Publisher;
   taskService: TaskService;
   jobLog: JobLogger;
-}
-
-function resolveExecutor(
-  registry: GatewayRegistry<WhatsAppProvider>,
-  providerInstanceId: string
-): WhatsAppExecutor {
-  const executor = registry.getByInstanceId(providerInstanceId);
-  if (!executor) {
-    throw new NonRetryableError(`Provider instance desconhecido no worker: ${providerInstanceId}`);
-  }
-  return executor;
-}
+};
 
 function warnOnFail(log: JobLogger, message: string) {
   return (err: unknown) => log.warn({ err }, message);
@@ -80,34 +53,13 @@ async function claimOrFallback(
   }
 }
 
-async function executeJob(job: JobSchema, deps: ExecuteDeps): Promise<void> {
-  switch (job.type) {
-    case "whatsapp.delete_message":
-      return deleteMessage(job.payload, {
-        executor: resolveExecutor(deps.whatsappGatewayRegistry, job.payload.providerInstanceId),
-        groupMessagesRepo: deps.groupMessagesRepo,
-      });
-    case "whatsapp.remove_participant":
-      return removeParticipant(
-        job.payload,
-        resolveExecutor(deps.whatsappGatewayRegistry, job.payload.providerInstanceId)
-      );
-    case "whatsapp.moderate_group_message":
-      return moderateGroupMessage(job.payload, {
-        moderationsRepo: deps.moderationsRepo,
-        groupMessagesRepo: deps.groupMessagesRepo,
-        moderate: deps.moderate,
-        enforcement: deps.enforcement,
-      });
-  }
-}
-
 // `durable: true` é o alias do rabbitmq-client para deliveryMode=2
 // (mensagem persistente — sobrevive a restart do broker).
 async function publishOrRequeue(
   deps: PublishDeps,
   args: {
     queue: string;
+    priority: number | undefined;
     job: JobSchema;
     attempt: number;
     onPublished: () => Promise<unknown>;
@@ -115,7 +67,7 @@ async function publishOrRequeue(
 ): Promise<ConsumerStatus> {
   try {
     await deps.publisher.send(
-      { routingKey: args.queue, durable: true },
+      { routingKey: args.queue, durable: true, priority: args.priority },
       { ...args.job, attempt: args.attempt }
     );
     await args.onPublished();
@@ -133,25 +85,7 @@ async function publishOrRequeue(
 }
 
 export function createJobHandler(options: JobHandlerOptions) {
-  const {
-    whatsappGatewayRegistry,
-    moderate,
-    taskService,
-    moderationsRepo,
-    groupMessagesRepo,
-    enforcement,
-    publisher,
-    topology,
-    onSuccess,
-  } = options;
-
-  const executeDeps: ExecuteDeps = {
-    whatsappGatewayRegistry,
-    moderate,
-    moderationsRepo,
-    groupMessagesRepo,
-    enforcement,
-  };
+  const { executeJob, taskService, publisher, maxRetries, onSuccess } = options;
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Parse — valida o schema da mensagem antes de qualquer coisa.
@@ -164,7 +98,9 @@ export function createJobHandler(options: JobHandlerOptions) {
 
       const idParse = z.object({ id: z.string() }).safeParse(msg.body);
       if (idParse.success) {
-        await taskService.markDropped(idParse.data.id, "schema_invalid").catch(() => {});
+        await taskService
+          .markDropped(idParse.data.id, "schema_invalid")
+          .catch(warnOnFail(logger, "markDropped falhou (schema inválido)"));
       }
 
       return ConsumerStatus.DROP;
@@ -184,8 +120,8 @@ export function createJobHandler(options: JobHandlerOptions) {
     jobLog.info({ attempt: attemptNumber }, "Job recebido — executando");
 
     try {
-      // 3. Execute — despacha para a action correspondente ao tipo do job.
-      await executeJob(job, executeDeps);
+      // 3. Execute — delega para o executeJob do worker (switch restrito por tipo).
+      await executeJob(job);
 
       // 4. Success — atualiza status e sinaliza para o consumer loop.
       jobLog.info("Job concluído com sucesso");
@@ -198,8 +134,9 @@ export function createJobHandler(options: JobHandlerOptions) {
       // 5. Failure — classifica o erro e decide entre retry, DLQ ou REQUEUE.
       const isNonRetryable = err instanceof NonRetryableError;
       const retriesUsed = attemptNumber - 1;
-      const canRetry = !isNonRetryable && retriesUsed < topology.maxRetries;
+      const canRetry = !isNonRetryable && retriesUsed < maxRetries;
       const publishDeps: PublishDeps = { publisher, taskService, jobLog };
+      const priority = priorityForJob(job.type);
 
       Sentry.captureException(err, {
         tags: { jobType: job.type, terminal: String(!canRetry) },
@@ -207,12 +144,14 @@ export function createJobHandler(options: JobHandlerOptions) {
       });
 
       if (canRetry) {
+        const retryQueue = retryQueueForJob(job.type);
         jobLog.warn(
-          { err, attempt: attemptNumber, retryQueue: topology.retryQueue },
+          { err, attempt: attemptNumber, retryQueue },
           "Erro ao executar job — agendando retry"
         );
         return publishOrRequeue(publishDeps, {
-          queue: topology.retryQueue,
+          queue: retryQueue,
+          priority,
           job,
           attempt: attemptNumber,
           onPublished: () =>
@@ -226,10 +165,12 @@ export function createJobHandler(options: JobHandlerOptions) {
 
       // NonRetryableError ou retries esgotados → DLQ
       const reason = isNonRetryable ? "non_retryable" : "max_retries_exceeded";
-      jobLog.error({ err, attempt: attemptNumber, reason }, "Enviando job para DLQ");
+      const dlqName = dlqForJob(job.type);
+      jobLog.error({ err, attempt: attemptNumber, reason, dlqName }, "Enviando job para DLQ");
 
       return publishOrRequeue(publishDeps, {
-        queue: topology.dlqName,
+        queue: dlqName,
+        priority,
         job,
         attempt: attemptNumber,
         onPublished: () =>

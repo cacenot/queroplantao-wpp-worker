@@ -2,11 +2,8 @@ import { describe, expect, it, mock } from "bun:test";
 
 // env é parseado no primeiro load e congelado. HTTP_API_KEY é sobrescrito unconditionally
 // para bater com VALID_API_KEY dos testes de rota HTTP (que rodam no mesmo processo).
-// Outros vars usam ??= para não sobrescrever o .env — integration tests precisam do
-// DATABASE_URL real.
 process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/test";
 process.env.AMQP_URL ??= "amqp://localhost";
-process.env.AMQP_QUEUE ??= "groups-messaging.actions";
 process.env.REDIS_URL ??= "redis://localhost:6379";
 process.env.HTTP_API_KEY = "test-api-key-secret";
 process.env.ZAPI_BASE_URL ??= "https://test.example.com";
@@ -17,7 +14,7 @@ process.env.AMQP_RETRY_DELAY_MS ??= "5000";
 process.env.AMQP_RETRY_MAX_RETRIES ??= "2";
 process.env.ZAPI_RECEIVED_WEBHOOK_SECRET ??= "test-webhook-secret";
 
-const { declareRetryTopology } = await import("./retry-topology.ts");
+const { declareQueueTopology } = await import("./retry-topology.ts");
 
 import type { Connection } from "rabbitmq-client";
 
@@ -40,34 +37,62 @@ function makeRabbit() {
   };
 }
 
-describe("declareRetryTopology", () => {
-  it("declara main, retry e dlq com args corretos", async () => {
+describe("declareQueueTopology", () => {
+  it("declara main, retry e dlq sem priority", async () => {
     const { rabbit, calls } = makeRabbit();
 
-    const topology = await declareRetryTopology(rabbit);
+    const topology = await declareQueueTopology(rabbit, {
+      mainQueue: "wpp.moderation",
+      retryDelayMs: 5000,
+      maxRetries: 2,
+    });
 
     expect(calls).toHaveLength(3);
 
     const main = calls[0];
-    expect(main?.queue).toBe(topology.mainQueue);
+    expect(main?.queue).toBe("wpp.moderation");
     expect(main?.durable).toBe(true);
     expect(main?.arguments).toBeUndefined();
 
     const retry = calls[1];
-    expect(retry?.queue).toBe(topology.retryQueue);
+    expect(retry?.queue).toBe("wpp.moderation.retry");
     expect(retry?.durable).toBe(true);
     expect(retry?.arguments).toEqual({
-      "x-message-ttl": topology.retryDelayMs,
+      "x-message-ttl": 5000,
       "x-dead-letter-exchange": "",
-      "x-dead-letter-routing-key": topology.mainQueue,
+      "x-dead-letter-routing-key": "wpp.moderation",
     });
 
     const dlq = calls[2];
-    expect(dlq?.queue).toBe(topology.dlqName);
+    expect(dlq?.queue).toBe("wpp.moderation.dlq");
     expect(dlq?.durable).toBe(true);
     expect(dlq?.arguments).toBeUndefined();
 
-    expect(topology.retryQueue).toBe(`${topology.mainQueue}.retry`);
-    expect(topology.dlqName).toBe(`${topology.mainQueue}.dlq`);
+    expect(topology.retryQueue).toBe("wpp.moderation.retry");
+    expect(topology.dlqName).toBe("wpp.moderation.dlq");
+    expect(topology.priority).toBeUndefined();
+  });
+
+  it("propaga x-max-priority pras três filas quando priority informada", async () => {
+    const { rabbit, calls } = makeRabbit();
+
+    const topology = await declareQueueTopology(rabbit, {
+      mainQueue: "wpp.zapi",
+      retryDelayMs: 5000,
+      maxRetries: 2,
+      priority: 10,
+    });
+
+    expect(calls).toHaveLength(3);
+
+    expect(calls[0]?.arguments).toEqual({ "x-max-priority": 10 });
+    expect(calls[1]?.arguments).toEqual({
+      "x-max-priority": 10,
+      "x-message-ttl": 5000,
+      "x-dead-letter-exchange": "",
+      "x-dead-letter-routing-key": "wpp.zapi",
+    });
+    expect(calls[2]?.arguments).toEqual({ "x-max-priority": 10 });
+    expect(topology.priority).toBe(10);
   });
 });

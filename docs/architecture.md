@@ -4,12 +4,15 @@ Referência rápida para navegar o código e saber onde mexer. Se você nunca to
 
 ## Visão geral
 
-O projeto é um **worker + API** que executa ações em plataformas de messaging (hoje WhatsApp via Z-API; em breve WhatsMeow, WhatsApp Business API e Telegram). Dois serviços independentes:
+O projeto é uma **API + dois workers especializados** que executam ações em plataformas de messaging (hoje WhatsApp via Z-API; em breve WhatsMeow, WhatsApp Business API e Telegram). Três serviços independentes que compartilham o mesmo código:
 
-- **API** (`src/api/`) — HTTP server (Elysia) que recebe tasks via `POST /tasks`, expõe CRUD de provider instances em `/providers/instances` e publica na fila AMQP. Documentação OpenAPI em `/docs`.
-- **Worker** (`src/worker/`) — consumer AMQP que executa cada job contra o provider correto, com rate limiting distribuído via Redis.
+- **API** (`src/api/`) — HTTP server (Elysia) que recebe tasks via `POST /tasks`, expõe CRUD de provider instances em `/providers/instances` e publica na fila AMQP roteando por `job.type`. Documentação OpenAPI em `/docs`.
+- **Worker zapi** (`src/workers/whatsapp-zapi/`) — consumer da fila `wpp.zapi`. Executa `whatsapp.delete_message` e `whatsapp.remove_participant`. Prefetch serial (1) — o lease distribuído coordena acesso por provider. `x-max-priority=10` garante delete (priority 10) antes de remove (7).
+- **Worker moderation** (`src/workers/moderation/`) — consumer da fila `wpp.moderation`. Executa `whatsapp.moderate_group_message` (LLM). Prefetch 5 — I/O bound, paralelismo seguro.
 
-Rodam em containers separados (`docker-compose.api.yml` e `docker-compose.worker.yml`), compartilham o mesmo código.
+O switch por tipo é feito em [`src/jobs/routing.ts`](../src/jobs/routing.ts) (`queueForJob`/`priorityForJob`) — fonte única consultada tanto pelo `TaskService.enqueue` (publish) quanto pelo `handler-base` (retry/DLQ).
+
+Containers e composes: [`infra/docker/`](../infra/docker/README.md).
 
 ## Fluxos
 
@@ -76,7 +79,9 @@ Detalhes do sync de grupos monitorados: [`docs/messaging-groups-sync.md`](./mess
 | `src/api/plugins/` | Plugins Elysia reutilizáveis (ex.: `auth.ts`). | Lógica de rota. |
 | `src/api/routes/` | Um arquivo por grupo de rotas (`tasks.ts`, `provider-instances.ts`, `webhooks/{provider}.ts`). Validação (Zod para `/tasks`, TypeBox para o restante), publish no AMQP. | Código compartilhado entre rotas (extrair para `src/lib/`). |
 | `src/api/schemas/` | Schemas TypeBox reutilizáveis consumidos pelas rotas Elysia. Gera OpenAPI automaticamente. | Validação de domínio (fica em Zod). |
-| `src/worker/` | Entry point do worker, consumer AMQP, health check, `handler.ts` (router job → action). | HTTP server, providers. |
+| `src/workers/{whatsapp-zapi,moderation}/` | Entry point de cada worker (consumer AMQP, health check, `executeJob` próprio com switch restrito ao escopo do worker). | HTTP server, providers. |
+| `src/workers/shared/` | `handler-base.ts` (lifecycle comum: parse → claim → execute → retry/DLQ → REQUEUE), `build-shared-deps.ts`, `zapi-bootstrap.ts`. | Lógica específica de um worker. |
+| `src/jobs/` | Schemas Zod dos jobs (`schemas.ts`), routing por tipo (`routing.ts`), declaração centralizada de topologies (`topology.ts`). | Execução, providers. |
 | `src/gateways/` | Abstração cross-protocol: interface base, `ProviderGateway<T>`. | Lógica de negócio, conhecimento de jobs/AMQP. |
 | `src/gateways/{protocol}/` | Interface do protocolo (`WhatsAppProvider`, `TelegramProvider`) e payloads. | |
 | `src/gateways/{protocol}/{impl}/` | Implementação concreta do provider (ex.: `zapi/client.ts`). | |
@@ -149,39 +154,48 @@ pending → queued → running → succeeded
 
 ### Retry e DLQ
 
-Erros de execução disparam retry via TTL+DLX nativo do LavinMQ/RabbitMQ. O número máximo de retries é configurável via `AMQP_RETRY_MAX_RETRIES`; o delay entre cada tentativa, via `AMQP_RETRY_DELAY_MS`.
+Erros de execução disparam retry via TTL+DLX nativo do LavinMQ/RabbitMQ. O número máximo de retries é configurável via `AMQP_RETRY_MAX_RETRIES`; o delay entre cada tentativa, via `AMQP_RETRY_DELAY_MS`. Ambos valem para as duas filas.
 
-**Filas declaradas no startup** (`src/lib/retry-topology.ts`):
+**Topologies declaradas no startup** (`src/jobs/topology.ts` chama `declareQueueTopology` de `src/lib/retry-topology.ts`). Cada worker declara as duas no boot — e a API também — para fechar a janela de corrida onde a API publicaria antes de qualquer worker subir. `queueDeclare` é idempotente com os mesmos args.
 
 ```
-wpp.actions.retry    (x-message-ttl: AMQP_RETRY_DELAY_MS → wpp.actions)
-wpp.actions.dlq      (sem TTL — inspeção e replay manual)
+wpp.zapi              (x-max-priority=10)        ← whatsapp.delete_message + whatsapp.remove_participant
+wpp.zapi.retry        (x-message-ttl + DLX → wpp.zapi, x-max-priority=10)
+wpp.zapi.dlq          (x-max-priority=10, sem TTL — inspeção e replay manual)
+
+wpp.moderation        (sem priority)             ← whatsapp.moderate_group_message
+wpp.moderation.retry  (x-message-ttl + DLX → wpp.moderation)
+wpp.moderation.dlq    (sem TTL — inspeção manual)
 ```
 
-Uma única fila de retry com TTL fixo. LavinMQ/RabbitMQ sofre head-of-line blocking em per-message TTL, o que inviabiliza backoff exponencial numa fila única. Se precisar de backoff exponencial no futuro, voltar a N filas dedicadas.
+Priority por tipo (em `src/jobs/routing.ts`): `delete_message=10`, `remove_participant=7`, `moderate_group_message=undefined`. Garante delete antes de remove na fila zapi; se delete falha, mensagem ainda é visível e a remoção sozinha é inofensiva.
 
-**Fluxo por cenário:**
+Cada fila tem retry+DLQ próprios — `wpp.zapi.dlq` é distinta de `wpp.moderation.dlq`. Backoff exponencial não está implementado (TTL fixo); se necessário, voltar a N filas dedicadas por escala (LavinMQ sofre head-of-line blocking em per-message TTL).
+
+**Fluxo por cenário** (igual para ambas as filas):
 
 | Cenário | DB | AMQP |
 |---|---|---|
 | Schema inválido | `→ dropped` | DROP |
-| Erro, `attempt ≤ maxRetries`, retryable | `running → queued` | publica em `retry`, DROP original |
-| Erro, `attempt > maxRetries` | `running → failed` | publica em DLQ, DROP |
-| `NonRetryableError` | `running → failed` | publica em DLQ, DROP |
+| Erro, `attempt ≤ maxRetries`, retryable | `running → queued` | publica em `<queue>.retry`, DROP original |
+| Erro, `attempt > maxRetries` | `running → failed` | publica em `<queue>.dlq`, DROP |
+| `NonRetryableError` | `running → failed` | publica em `<queue>.dlq`, DROP |
 | Publish retry/DLQ falha | `running → queued` | REQUEUE original |
 
 Para marcar um erro como permanente (sem retry), lançar `NonRetryableError` de `src/lib/errors.ts`.
 
-> **Atenção ao alterar o TTL em produção:** mudar `AMQP_RETRY_DELAY_MS` com a fila `wpp.actions.retry` já declarada dispara `PRECONDITION_FAILED` no bootstrap. Delete a fila via `rabbitmqadmin` antes do deploy, ou versione o nome (`wpp.actions.retry.v2`).
+> **Atenção ao alterar TTL ou priority em produção:** redeclarar uma fila com args diferentes dispara `PRECONDITION_FAILED` no bootstrap. Delete a fila via `rabbitmqadmin` antes do deploy, ou versione o nome (ex.: `wpp.zapi.retry.v2`).
 
 **Debug:**
 
 ```bash
-# Inspecionar DLQ
-rabbitmqadmin get queue=wpp.actions.dlq count=10
+# Inspecionar DLQs
+rabbitmqadmin get queue=wpp.zapi.dlq count=10
+rabbitmqadmin get queue=wpp.moderation.dlq count=10
 
 # Ver mensagens aguardando retry
-rabbitmqadmin get queue=wpp.actions.retry count=10
+rabbitmqadmin get queue=wpp.zapi.retry count=10
+rabbitmqadmin get queue=wpp.moderation.retry count=10
 ```
 
 ### Limitações atuais
@@ -196,7 +210,7 @@ rabbitmqadmin get queue=wpp.actions.retry count=10
 1. Criar `src/gateways/whatsapp/whatsmeow/types.ts` com o shape de configuração da instância.
 2. Criar `src/gateways/whatsapp/whatsmeow/client.ts` com `class WhatsMeowClient implements WhatsAppProvider`. Deve expor `readonly instance: WhatsAppInstance` com `id = providerInstanceId` (UUID da linha em `messaging_provider_instances`).
 3. Adicionar a tabela específica do provider em `src/db/schema/` e um service de leitura em `src/services/` para materializar configs habilitadas.
-4. Em `src/worker/index.ts`, adicionar as linhas whatsmeow ao fluxo de `buildWhatsappGatewayRegistry`: o registry já agrupa por `redis_key` e aceita providers de kinds distintos no mesmo pool.
+4. Em `src/workers/shared/zapi-bootstrap.ts` (ou criar análogo `whatsmeow-bootstrap.ts`), adicionar as linhas whatsmeow ao fluxo de `buildWhatsappGatewayRegistry`: o registry já agrupa por `redis_key` e aceita providers de kinds distintos no mesmo pool.
 
 Zero mudança nas actions.
 
@@ -204,9 +218,9 @@ Zero mudança nas actions.
 
 1. Criar `src/gateways/telegram/types.ts` com `TelegramProvider` estendendo `MessagingProvider`.
 2. Criar `src/gateways/telegram/{impl}/` com a implementação (ex.: `bot-api/`).
-3. Em `src/worker/index.ts`, montar um `ProviderGatewayRegistry<TelegramProvider>` análogo ao do WhatsApp, agrupando instâncias Telegram por `redis_key`.
+3. Criar `src/workers/telegram/{index.ts,handler.ts,deps.ts}` análogo aos workers existentes, montando um `ProviderGatewayRegistry<TelegramProvider>` agrupado por `redis_key`. Adicionar Dockerfile + compose em `infra/docker/`.
 4. Criar actions em `src/actions/telegram/`.
-5. Adicionar novos `type` ao discriminated union em `src/jobs/schemas.ts` com prefixo `telegram.` — os payloads precisam carregar `providerInstanceId` também. Estender o switch em `src/worker/handler.ts` resolvendo pelo registry Telegram.
+5. Adicionar novos `type` ao discriminated union em `src/jobs/schemas.ts` com prefixo `telegram.` — os payloads precisam carregar `providerInstanceId` também. Mapear no `src/jobs/routing.ts` (provavelmente uma fila `wpp.telegram` ou similar) e declarar a topology em `src/jobs/topology.ts`.
 
 ## Rate limiting distribuído
 
@@ -255,38 +269,43 @@ Todos os jobs seguem o formato:
 1. Adicionar o payload e o type literal em `src/jobs/types.ts`.
 2. Adicionar o `z.literal` + payload schema em `src/jobs/schemas.ts` e incluir no `discriminatedUnion`.
 3. Adicionar o valor ao `taskTypeEnum` em `src/db/schema/tasks.ts` e gerar migration (`bunx drizzle-kit generate`).
-4. Adicionar o case no switch de `src/worker/handler.ts`.
-5. Criar a action correspondente em `src/actions/{protocolo}/`.
+4. Mapear o tipo pra fila e (opcionalmente) priority em `src/jobs/routing.ts`. Se for fila nova, declarar a topology em `src/jobs/topology.ts`.
+5. Decidir qual worker consome:
+   - Se cabe num worker existente → adicionar o case no switch de `src/workers/{worker}/handler.ts`.
+   - Se exige worker novo → criar `src/workers/<nome>/{index.ts,handler.ts,deps.ts}` seguindo o padrão de `whatsapp-zapi`/`moderation`, e adicionar Dockerfile + compose em `infra/docker/`.
+6. Criar a action correspondente em `src/actions/{protocolo}/`.
 
 ## Variáveis de ambiente
 
 | Variável | Tipo | Default | Consumidores |
 |---|---|---|---|
-| `DATABASE_URL` | string | — | Worker |
-| `AMQP_URL` | string (URL) | — | API + Worker |
-| `AMQP_QUEUE` | string | — | API + Worker |
-| `AMQP_PREFETCH` | number | 5 | Worker |
-| `AMQP_RETRY_DELAY_MS` | number (ms) | `120000` | Worker |
-| `AMQP_RETRY_MAX_RETRIES` | number | `3` | Worker |
-| `AMQP_DLQ_NAME` | string | `${AMQP_QUEUE}.dlq` | Worker |
-| `ZAPI_BASE_URL` | string (URL) | — | Worker |
-| `ZAPI_CLIENT_TOKEN` | string | — | Worker |
-| `ZAPI_DELAY_MIN_MS` | number | 500 | Worker |
-| `ZAPI_DELAY_MAX_MS` | number | 1800 | Worker |
-| `REDIS_URL` | string (URL) | — | Worker |
-| `HTTP_PORT` | number | 3000 | API |
+| `DATABASE_URL` | string | — | API + Workers |
+| `AMQP_URL` | string (URL) | — | API + Workers |
+| `AMQP_ZAPI_QUEUE` | string | `wpp.zapi` | API + Workers |
+| `AMQP_ZAPI_PREFETCH` | number | `1` | Worker zapi |
+| `AMQP_MODERATION_QUEUE` | string | `wpp.moderation` | API + Workers |
+| `AMQP_MODERATION_PREFETCH` | number | `5` | Worker moderation |
+| `AMQP_RETRY_DELAY_MS` | number (ms) | `120000` | API + Workers |
+| `AMQP_RETRY_MAX_RETRIES` | number | `3` | API + Workers |
+| `ZAPI_BASE_URL` | string (URL) | — | API + Worker zapi |
+| `ZAPI_CLIENT_TOKEN` | string | — | API + Worker zapi |
+| `ZAPI_DELAY_MIN_MS` | number | `2500` | Worker zapi |
+| `ZAPI_DELAY_MAX_MS` | number | `5200` | Worker zapi |
+| `REDIS_URL` | string (URL) | — | API + Workers |
+| `HTTP_PORT` | number | `3000` | API |
 | `HTTP_API_KEY` | string | — | API |
-| `WORKER_HEALTH_PORT` | number | 3001 | Worker |
-| `QP_ADMIN_API_URL` | string (URL) | — | Worker |
-| `QP_ADMIN_API_TOKEN` | string | — | Worker |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | string | — | Worker (só o do provider ativo) |
+| `WORKER_ZAPI_HEALTH_PORT` | number | `3011` | Worker zapi |
+| `WORKER_MODERATION_HEALTH_PORT` | number | `3012` | Worker moderation |
+| `QP_ADMIN_API_URL` | string (URL) | — | API |
+| `QP_ADMIN_API_TOKEN` | string | — | API |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | string | — | Worker moderation (só o do provider ativo) |
+| `MODERATION_CONTENT_FILTER_ENABLED` | bool string | `false` | Worker moderation |
 | `INGESTION_DEDUPE_WINDOW_MS` | number (ms) | `60000` | API |
 | `MODERATION_REUSE_WINDOW_MS` | number (ms) | `1296000000` (15d) | API |
 | `ZAPI_RECEIVED_WEBHOOK_SECRET` | string | obrigatória | API |
 | `ZAPI_RECEIVED_WEBHOOK_ENABLED` | bool string | `true` | API |
-| `GROUPS_SYNC_INTERVAL_MS` | number (ms) | `300000` (5min) | API + Worker |
-| `MESSAGING_GROUPS_REDIS_PREFIX` | string | `messaging_groups` | API + Worker |
-| `SPAM_FILTERS` / `SPAM_INTERVAL_MS` | string / number | — / 120000 | scripts |
+| `MESSAGING_GROUPS_REDIS_PREFIX` | string | `messaging_groups` | API + Worker moderation |
+| `SPAM_FILTERS` / `SPAM_INTERVAL_MS` | string / number | — / `120000` | scripts |
 
 Schema completo e validação: `src/config/env.ts`.
 
