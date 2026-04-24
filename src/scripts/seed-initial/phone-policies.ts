@@ -17,6 +17,8 @@ const BLACKLIST: string[] = [
   "5516998982703",
   "5515981748850",
   "553171837455",
+  "554791665549",
+  "5522981013677",
 ];
 
 type BypassEntry = { nome: string; telefone: string; funcao: string };
@@ -74,6 +76,7 @@ const BYPASS: BypassEntry[] = [
   { nome: "Maisa", telefone: "554796348005", funcao: "Gestão Médica" },
   { nome: "Thiago MKT", telefone: "554792162285", funcao: "Marketing" },
   { nome: "Carol MKT", telefone: "554789180136", funcao: "Marketing" },
+  { nome: "Jennifer Braga", telefone: "5547991399382", funcao: "Escalista" },
 ];
 
 type ResolvedPhone = { phone: string; waId: string | null };
