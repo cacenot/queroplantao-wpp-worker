@@ -66,13 +66,17 @@ bun run dev:worker:moderation
 Para subir tudo via Docker (smoke test do build):
 
 ```bash
-docker compose \
+docker compose --project-directory . \
   -f infra/docker/compose/dev-deps.yml \
   -f infra/docker/compose/api.yml \
   -f infra/docker/compose/worker-zapi.yml \
   -f infra/docker/compose/worker-moderation.yml \
   up --build
 ```
+
+`--project-directory .` é necessário porque os composes têm `context: .`
+(raiz do repo). É o mesmo setup que o Coolify usa — mantém consistência
+entre dev e prod.
 
 ## Coolify (produção)
 
@@ -96,8 +100,9 @@ Cada serviço é um recurso "Application" (ou "Docker Compose") separado no Cool
   - `infra/docker/compose/worker-zapi.yml`
   - `infra/docker/compose/worker-moderation.yml`
 
-Cada compose constrói com `context: ../../..` (raiz do repo) — necessário pro
-build copiar `src/`, `package.json`, etc.
+Cada compose constrói com `context: .` resolvido a partir do `--project-directory`
+que Coolify aponta pra raiz do repo — necessário pro build copiar `src/`,
+`package.json`, etc.
 
 ### Variáveis de ambiente
 

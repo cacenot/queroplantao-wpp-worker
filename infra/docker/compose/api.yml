@@ -3,7 +3,7 @@
 services:
   api:
     build:
-      context: ../../..
+      context: .
       dockerfile: infra/docker/api.Dockerfile
     # Sem `ports:` (binding de host) — o proxy do Coolify descobre as réplicas
     # via `expose` e faz load balance. Replicas são ajustadas no painel do

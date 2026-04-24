@@ -4,7 +4,7 @@
 services:
   worker-moderation:
     build:
-      context: ../../..
+      context: .
       dockerfile: infra/docker/worker-moderation.Dockerfile
     ports:
       - "3012:3012"
