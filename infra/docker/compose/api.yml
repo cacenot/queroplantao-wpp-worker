@@ -5,12 +5,12 @@ services:
     build:
       context: ../../..
       dockerfile: infra/docker/api.Dockerfile
-    # Sem `ports:` (binding de host) pra não conflitar entre réplicas —
-    # o proxy do Coolify descobre as réplicas e faz load balance via `expose`.
+    # Sem `ports:` (binding de host) — o proxy do Coolify descobre as réplicas
+    # via `expose` e faz load balance. Replicas são ajustadas no painel do
+    # resource no Coolify (não aqui) — `deploy.replicas` conflita com o
+    # `container_name` que o Coolify injeta automaticamente.
     expose:
       - "3000"
-    deploy:
-      replicas: 2
     environment:
       DATABASE_URL: ${DATABASE_URL}
       AMQP_URL: ${AMQP_URL}
