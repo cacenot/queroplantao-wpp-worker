@@ -14,7 +14,9 @@ async function main() {
   const deps = await buildDeps();
 
   // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
-  let healthy = false;
+  // Inicia true porque buildDeps() já completou declareJobTopologies com sucesso.
+  // O evento "connection" inicial dispara dentro de buildDeps(), antes deste listener.
+  let healthy = true;
 
   deps.rabbit.on("connection", () => {
     healthy = true;
