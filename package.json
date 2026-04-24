@@ -28,6 +28,8 @@
     "test:integration": "LOG_LEVEL=silent INTEGRATION=1 bun test integration",
     "infra": "docker compose -f infra/docker/compose/dev-deps.yml up -d",
     "scripts": "=== Utility Scripts ===",
+    "blacklist": "bun run src/scripts/blacklist.ts",
+    "bypass": "bun run src/scripts/bypass.ts",
     "sync-groups": "bun run src/scripts/sync-groups.ts",
     "seed-initial": "bun run src/scripts/seed-initial/index.ts",
     "remove-spam": "bun run src/scripts/remove-spam.ts",
