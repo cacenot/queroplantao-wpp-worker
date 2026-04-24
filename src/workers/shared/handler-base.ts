@@ -23,7 +23,6 @@ export type JobHandlerOptions = {
   taskService: TaskService;
   publisher: Publisher;
   maxRetries: number;
-  onSuccess?: () => void;
 };
 
 type PublishDeps = {
@@ -85,7 +84,7 @@ async function publishOrRequeue(
 }
 
 export function createJobHandler(options: JobHandlerOptions) {
-  const { executeJob, taskService, publisher, maxRetries, onSuccess } = options;
+  const { executeJob, taskService, publisher, maxRetries } = options;
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Parse — valida o schema da mensagem antes de qualquer coisa.
@@ -128,7 +127,6 @@ export function createJobHandler(options: JobHandlerOptions) {
       await taskService
         .markSucceeded(job.id)
         .catch(warnOnFail(jobLog, "Falha ao marcar task succeeded — job já executado"));
-      onSuccess?.();
       return undefined;
     } catch (err) {
       // 5. Failure — classifica o erro e decide entre retry, DLQ ou REQUEUE.

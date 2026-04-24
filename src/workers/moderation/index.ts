@@ -1,5 +1,6 @@
 import { env } from "../../config/env.ts";
 import { registerCrashHandlers } from "../../lib/crash-handlers.ts";
+import { computeHealth } from "../../lib/health.ts";
 import { logger } from "../../lib/logger.ts";
 import { initSentry } from "../../lib/sentry.ts";
 import { closeSharedDeps } from "../shared/build-shared-deps.ts";
@@ -15,16 +16,6 @@ async function main() {
 
   const deps = await buildModerationWorkerDeps();
 
-  // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
-  let healthy = false;
-  deps.rabbit.on("connection", () => {
-    healthy = true;
-  });
-  deps.rabbit.on("error", () => {
-    healthy = false;
-  });
-
-  // --- Consumer AMQP: processa jobs de moderação ---
   const executeJob = createModerationExecuteJob({
     moderationsRepo: deps.moderationsRepo,
     groupMessagesRepo: deps.groupMessagesRepo,
@@ -38,15 +29,17 @@ async function main() {
     taskService: deps.taskService,
     publisher: deps.publisher,
     maxRetries: deps.topologies.moderation.maxRetries,
-    onSuccess: () => {
-      healthy = true;
-    },
   });
 
-  // Sem queueOptions: a fila já foi declarada em buildSharedDeps.
+  // `queueOptions: { passive: true }` porque o Consumer do rabbitmq-client sempre
+  // chama queueDeclare no setup (incluindo cada reconexão). Sem passive, ele iria
+  // com defaults (durable:false) e conflitaria com a fila que declareJobTopologies
+  // criou com durable:true. Passive só verifica existência — declaração fica só em
+  // topology.ts.
   const consumer = deps.rabbit.createConsumer(
     {
       queue: deps.topologies.moderation.mainQueue,
+      queueOptions: { passive: true },
       qos: { prefetchCount: env.AMQP_MODERATION_PREFETCH },
     },
     handleMessage
@@ -54,7 +47,6 @@ async function main() {
 
   consumer.on("error", (err) => {
     logger.error({ err }, "Erro no consumer AMQP (moderation-worker)");
-    healthy = false;
   });
 
   logger.info(
@@ -62,16 +54,13 @@ async function main() {
     "moderation-worker ativo — aguardando jobs"
   );
 
-  // --- Servidor HTTP de health check ---
   const healthServer = Bun.serve({
     port: env.WORKER_MODERATION_HEALTH_PORT,
     fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/health" && req.method === "GET") {
-        return Response.json(
-          { status: healthy ? "ok" : "degraded" },
-          { status: healthy ? 200 : 503 }
-        );
+        const health = computeHealth(deps);
+        return Response.json(health, { status: health.status === "ok" ? 200 : 503 });
       }
       return new Response("Not found", { status: 404 });
     },

@@ -1,6 +1,7 @@
 import { swagger } from "@elysiajs/swagger";
 import { Elysia } from "elysia";
 import { env } from "../config/env.ts";
+import type { HealthReport } from "../lib/health.ts";
 import { logger } from "../lib/logger.ts";
 import { composeApp, type WebhookConfig } from "./app.ts";
 import type { ApiDeps } from "./deps.ts";
@@ -13,12 +14,12 @@ export interface HttpServerHandle {
 export interface HttpServerOptions {
   deps: ApiDeps;
   webhookConfig: WebhookConfig;
-  isHealthy: () => boolean;
+  getHealth: () => HealthReport;
   port?: number;
 }
 
 export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
-  const { deps, webhookConfig, isHealthy, port: portOverride } = options;
+  const { deps, webhookConfig, getHealth, port: portOverride } = options;
 
   const app = new Elysia()
     .use(
@@ -40,9 +41,9 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
       })
     )
     .get("/health", ({ set }) => {
-      const ok = isHealthy();
-      if (!ok) set.status = 503;
-      return { status: ok ? "ok" : "degraded" };
+      const health = getHealth();
+      if (health.status !== "ok") set.status = 503;
+      return health;
     })
     .use(composeApp(deps, webhookConfig));
 

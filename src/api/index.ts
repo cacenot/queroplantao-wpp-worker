@@ -1,5 +1,6 @@
 import { env } from "../config/env.ts";
 import { registerCrashHandlers } from "../lib/crash-handlers.ts";
+import { computeHealth } from "../lib/health.ts";
 import { logger } from "../lib/logger.ts";
 import { initSentry } from "../lib/sentry.ts";
 import { buildDeps } from "./deps.ts";
@@ -13,26 +14,13 @@ async function main() {
 
   const deps = await buildDeps();
 
-  // --- Health flag: reflete se o rabbit está conectado e sem erros recentes ---
-  // Inicia true porque buildDeps() já completou declareJobTopologies com sucesso.
-  // O evento "connection" inicial dispara dentro de buildDeps(), antes deste listener.
-  let healthy = true;
-
-  deps.rabbit.on("connection", () => {
-    healthy = true;
-  });
-  deps.rabbit.on("error", () => {
-    healthy = false;
-  });
-
-  // --- Servidor HTTP ---
   const httpServer = startHttpServer({
     deps,
     webhookConfig: {
       secret: env.ZAPI_RECEIVED_WEBHOOK_SECRET,
       enabled: env.ZAPI_RECEIVED_WEBHOOK_ENABLED,
     },
-    isHealthy: () => healthy,
+    getHealth: () => computeHealth(deps),
   });
 
   logger.info({ port: env.HTTP_PORT }, "messaging-api pronta");

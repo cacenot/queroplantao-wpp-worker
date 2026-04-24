@@ -1,5 +1,25 @@
-import type { Connection } from "rabbitmq-client";
+import { AMQPChannelError, type Cmd, type Connection, type MethodParams } from "rabbitmq-client";
 import { logger } from "./logger.ts";
+
+type QueueDeclareParams = MethodParams[Cmd.QueueDeclare];
+
+/**
+ * Declara a fila se não existe; se já existe com args divergentes (PRECONDITION_FAILED),
+ * faz passive verify (só confere existência pelo nome) e loga warning. Evita crash
+ * loop quando o broker tem uma fila de versão anterior com args diferentes.
+ */
+async function declareOrVerify(rabbit: Connection, opts: QueueDeclareParams): Promise<void> {
+  try {
+    await rabbit.queueDeclare(opts);
+  } catch (err) {
+    if (!(err instanceof AMQPChannelError) || err.code !== "PRECONDITION_FAILED") throw err;
+    logger.warn(
+      { queue: opts.queue, expectedArgs: opts.arguments, expectedDurable: opts.durable },
+      "Fila existe com args divergentes do esperado — usando fila existente (passive verify)"
+    );
+    await rabbit.queueDeclare({ queue: opts.queue, passive: true });
+  }
+}
 
 export type QueueTopology = {
   mainQueue: string;
@@ -43,13 +63,13 @@ export async function declareQueueTopology(
 
   const priorityArgs = priority ? { "x-max-priority": priority } : undefined;
 
-  await rabbit.queueDeclare({
+  await declareOrVerify(rabbit, {
     queue: mainQueue,
     durable: true,
     arguments: priorityArgs,
   });
 
-  await rabbit.queueDeclare({
+  await declareOrVerify(rabbit, {
     queue: retryQueue,
     durable: true,
     arguments: {
@@ -60,7 +80,7 @@ export async function declareQueueTopology(
     },
   });
 
-  await rabbit.queueDeclare({
+  await declareOrVerify(rabbit, {
     queue: dlqName,
     durable: true,
     arguments: priorityArgs,

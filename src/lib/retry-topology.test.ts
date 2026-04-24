@@ -16,12 +16,18 @@ process.env.ZAPI_RECEIVED_WEBHOOK_SECRET ??= "test-webhook-secret";
 
 const { declareQueueTopology } = await import("./retry-topology.ts");
 
-import type { Connection } from "rabbitmq-client";
+import { AMQPChannelError, type Connection } from "rabbitmq-client";
+
+// O `.d.ts` da lib só expõe o construtor herdado de Error. O real em `exception.js`
+// é `constructor(code, message, cause)`. Cast explícito para usar a assinatura real.
+type AMQPChannelErrorCtor = new (code: string, message: string) => AMQPChannelError;
+const AMQPChannelErrorC = AMQPChannelError as unknown as AMQPChannelErrorCtor;
 
 interface DeclareCall {
   queue: string;
   durable?: boolean;
   arguments?: Record<string, unknown>;
+  passive?: boolean;
 }
 
 function makeRabbit() {
@@ -94,5 +100,52 @@ describe("declareQueueTopology", () => {
     });
     expect(calls[2]?.arguments).toEqual({ "x-max-priority": 10 });
     expect(topology.priority).toBe(10);
+  });
+
+  it("cai para passive verify quando broker responde PRECONDITION_FAILED", async () => {
+    const calls: DeclareCall[] = [];
+    const queueDeclare = mock((opts: DeclareCall) => {
+      calls.push(opts);
+      if (opts.queue === "messaging.zapi" && !opts.passive) {
+        const err = new AMQPChannelErrorC(
+          "PRECONDITION_FAILED",
+          "Existing queue 'messaging.zapi' declared with other arguments"
+        );
+        return Promise.reject(err);
+      }
+      return Promise.resolve();
+    });
+    const rabbit = { queueDeclare } as unknown as Connection;
+
+    await expect(
+      declareQueueTopology(rabbit, {
+        mainQueue: "messaging.zapi",
+        retryDelayMs: 5000,
+        maxRetries: 2,
+        priority: 10,
+      })
+    ).resolves.toBeDefined();
+
+    expect(calls).toHaveLength(4);
+    expect(calls[0]).toMatchObject({ queue: "messaging.zapi", durable: true });
+    expect(calls[1]).toEqual({ queue: "messaging.zapi", passive: true });
+    expect(calls[2]).toMatchObject({ queue: "messaging.zapi.retry", durable: true });
+    expect(calls[3]).toMatchObject({ queue: "messaging.zapi.dlq", durable: true });
+  });
+
+  it("propaga erro que não é PRECONDITION_FAILED", async () => {
+    const queueDeclare = mock((_opts: DeclareCall) => {
+      const err = new AMQPChannelErrorC("ACCESS_REFUSED", "no permission");
+      return Promise.reject(err);
+    });
+    const rabbit = { queueDeclare } as unknown as Connection;
+
+    await expect(
+      declareQueueTopology(rabbit, {
+        mainQueue: "messaging.zapi",
+        retryDelayMs: 5000,
+        maxRetries: 2,
+      })
+    ).rejects.toMatchObject({ code: "ACCESS_REFUSED" });
   });
 });

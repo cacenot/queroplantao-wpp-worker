@@ -83,7 +83,6 @@ type HandlerDeps = {
   taskService: ReturnType<typeof makeTaskService>;
   publisher: ReturnType<typeof makePublisher>;
   executeJob: ReturnType<typeof mock>;
-  onSuccess: ReturnType<typeof mock>;
 };
 
 function makeHandler(
@@ -98,7 +97,6 @@ function makeHandler(
   const publisher = overrides.publisher ?? makePublisher();
   const maxRetries = overrides.maxRetries ?? 3;
   const executeJob = mock(overrides.executeJob ?? (() => Promise.resolve()));
-  const onSuccess = mock(() => {});
 
   const handler = createJobHandler({
     executeJob,
@@ -107,7 +105,6 @@ function makeHandler(
     // biome-ignore lint/suspicious/noExplicitAny: fake publisher tipado via makePublisher
     publisher: publisher as any,
     maxRetries,
-    onSuccess,
   });
 
   return {
@@ -116,7 +113,6 @@ function makeHandler(
       taskService,
       publisher,
       executeJob,
-      onSuccess,
     },
   };
 }
@@ -176,7 +172,7 @@ describe("handler-base — happy path", () => {
     taskService = makeTaskService();
   });
 
-  it("delete_message: chama executeJob, markSucceeded e onSuccess", async () => {
+  it("delete_message: chama executeJob e markSucceeded", async () => {
     const { handler, deps } = makeHandler({ taskService });
 
     const result = await handler(makeMsg(DELETE_MESSAGE_JOB));
@@ -184,7 +180,6 @@ describe("handler-base — happy path", () => {
     expect(result).toBeUndefined();
     expect(deps.executeJob).toHaveBeenCalledTimes(1);
     expect(deps.taskService.markSucceeded).toHaveBeenCalledWith(DELETE_MESSAGE_JOB.id);
-    expect(deps.onSuccess).toHaveBeenCalledTimes(1);
     expect(deps.publisher.send).toHaveBeenCalledTimes(0);
   });
 
