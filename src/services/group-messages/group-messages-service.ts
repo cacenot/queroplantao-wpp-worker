@@ -7,6 +7,7 @@ import type { MessageModeration } from "../../db/schema/message-moderations.ts";
 import type { NormalizedZapiMessage } from "../../gateways/whatsapp/zapi/message-normalizer.ts";
 import { logger } from "../../lib/logger.ts";
 import { computeContentHash, computeIngestionDedupeHash } from "../../lib/message-hash.ts";
+import type { GroupParticipantsService } from "../group-participants/index.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
 import type { ModerationEnforcementService } from "../moderation-enforcement/index.ts";
 import type { TaskService } from "../task/index.ts";
@@ -30,6 +31,7 @@ type GroupMessagesServiceOptions = {
   taskService: TaskService;
   moderationConfig: ModerationConfigSnapshot;
   enforcement: ModerationEnforcementService;
+  participantsService: GroupParticipantsService;
   ingestionDedupeWindowMs: number;
   moderationReuseWindowMs: number;
 };
@@ -121,7 +123,29 @@ export class GroupMessagesService {
       return { status: "duplicate", messageId: row.id };
     }
 
-    // — 4. Resolver moderação
+    // — 4. Registrar "visto" do sender no grupo (só snapshot, sem event row —
+    //   ver comentário em `recordSeenFromMessage`). Best-effort.
+    await this.options.participantsService
+      .recordSeenFromMessage({
+        providerInstanceId: ctx.providerInstanceId,
+        providerKind: normalized.providerKind,
+        protocol: normalized.protocol,
+        groupExternalId: normalized.groupExternalId,
+        sender: {
+          phone: normalized.senderPhone,
+          senderExternalId: normalized.senderExternalId,
+        },
+        displayName: normalized.senderName,
+        seenAt: normalized.sentAt,
+      })
+      .catch((err) =>
+        logger.warn(
+          { err, messageId: row.id },
+          "Falha ao registrar participant visto — ingestão de mensagem segue"
+        )
+      );
+
+    // — 5. Resolver moderação
     return this.resolveModeration(row.id, contentHash, normalized, ctx);
   }
 

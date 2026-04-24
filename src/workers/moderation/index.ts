@@ -30,6 +30,7 @@ async function main() {
     groupMessagesRepo: deps.groupMessagesRepo,
     moderate: deps.moderate,
     enforcement: deps.enforcement,
+    participantsService: deps.participantsService,
   });
 
   const handleMessage = createJobHandler({

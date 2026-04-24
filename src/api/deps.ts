@@ -2,6 +2,7 @@ import { loadActive } from "../ai/moderation/loader.ts";
 import { env } from "../config/env.ts";
 import { createDbConnection, createDrizzleDb } from "../db/client.ts";
 import { GroupMessagesRepository } from "../db/repositories/group-messages-repository.ts";
+import { GroupParticipantsRepository } from "../db/repositories/group-participants-repository.ts";
 import { MessageModerationsRepository } from "../db/repositories/message-moderations-repository.ts";
 import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
 import { MessagingProviderInstanceRepository } from "../db/repositories/messaging-provider-instance-repository.ts";
@@ -13,6 +14,7 @@ import { createAmqpConnection } from "../lib/amqp.ts";
 import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
+import { GroupParticipantsService } from "../services/group-participants/index.ts";
 import { MessagingGroupsCache } from "../services/messaging-groups/messaging-groups-cache.ts";
 import { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
 import { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
@@ -39,6 +41,7 @@ export async function buildDeps() {
   const groupMessagesRepo = new GroupMessagesRepository(db);
   const moderationsRepo = new MessageModerationsRepository(db);
   const phonePoliciesRepo = new PhonePoliciesRepository(db);
+  const groupParticipantsRepo = new GroupParticipantsRepository(db);
 
   // --- Serviços de domínio ---
   const taskService = new TaskService({
@@ -75,6 +78,13 @@ export async function buildDeps() {
 
   const moderationConfig = loadActive();
 
+  const participantsService = new GroupParticipantsService({
+    repo: groupParticipantsRepo,
+    messagingGroupsRepo,
+    instanceService,
+    taskService,
+  });
+
   const groupMessagesService = new GroupMessagesService({
     groupMessagesRepo,
     moderationsRepo,
@@ -83,6 +93,7 @@ export async function buildDeps() {
     taskService,
     moderationConfig,
     enforcement,
+    participantsService,
     ingestionDedupeWindowMs: env.INGESTION_DEDUPE_WINDOW_MS,
     moderationReuseWindowMs: env.MODERATION_REUSE_WINDOW_MS,
   });
@@ -96,6 +107,7 @@ export async function buildDeps() {
     instanceService,
     phonePoliciesService,
     groupMessagesService,
+    participantsService,
   };
 }
 

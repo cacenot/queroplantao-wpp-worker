@@ -5,6 +5,7 @@ import type { MessagingGroupsRepository } from "../../db/repositories/messaging-
 import type { GroupMessage } from "../../db/schema/group-messages.ts";
 import type { MessageModeration } from "../../db/schema/message-moderations.ts";
 import type { NormalizedZapiMessage } from "../../gateways/whatsapp/zapi/message-normalizer.ts";
+import type { GroupParticipantsService } from "../group-participants/index.ts";
 import type { MessagingGroupsCache } from "../messaging-groups/messaging-groups-cache.ts";
 import type { ModerationEnforcementService } from "../moderation-enforcement/index.ts";
 import type { TaskService } from "../task/index.ts";
@@ -122,6 +123,7 @@ type Deps = {
   taskService?: Partial<TaskService>;
   moderationConfig?: { version: string; primaryModel: string };
   enforcement?: Partial<ModerationEnforcementService>;
+  participantsService?: Partial<GroupParticipantsService>;
 };
 
 function makeService(deps: Deps = {}) {
@@ -163,6 +165,11 @@ function makeService(deps: Deps = {}) {
       evaluateAndEnforce: mock(() => Promise.resolve()),
       ...deps.enforcement,
     } as unknown as ModerationEnforcementService,
+
+    participantsService: {
+      recordSeenFromMessage: mock(() => Promise.resolve({ status: "upserted" as const })),
+      ...deps.participantsService,
+    } as unknown as GroupParticipantsService,
 
     ingestionDedupeWindowMs: 60_000,
     moderationReuseWindowMs: 86_400_000,

@@ -1,4 +1,5 @@
 import type { DeleteMessagePayload, RemoveParticipantPayload } from "../gateways/whatsapp/types.ts";
+import type { IngestParticipantEventPayload } from "./schemas.ts";
 
 export type { DeleteMessagePayload, RemoveParticipantPayload };
 
@@ -25,6 +26,13 @@ export type Job =
       id: string;
       type: "whatsapp.moderate_group_message";
       payload: ModerateGroupMessagePayload;
+      createdAt: string;
+      attempt?: number;
+    }
+  | {
+      id: string;
+      type: "whatsapp.ingest_participant_event";
+      payload: IngestParticipantEventPayload;
       createdAt: string;
       attempt?: number;
     };

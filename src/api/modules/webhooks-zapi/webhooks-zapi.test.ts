@@ -36,12 +36,25 @@ function makeInstanceService() {
   };
 }
 
+function makeParticipantsService() {
+  type Result =
+    | { status: "accepted"; eventType: string }
+    | { status: "ignored"; reason: string; notification?: string };
+  return {
+    ingestZapiWebhook: mock(
+      (): Promise<Result> => Promise.resolve({ status: "ignored", reason: "no-notification" })
+    ),
+  };
+}
+
 type MockGroupMessagesService = ReturnType<typeof makeGroupMessagesService>;
 type MockInstanceService = ReturnType<typeof makeInstanceService>;
+type MockParticipantsService = ReturnType<typeof makeParticipantsService>;
 
 interface BuildOpts {
   groupMessagesService?: MockGroupMessagesService;
   instanceService?: MockInstanceService;
+  participantsService?: MockParticipantsService;
   secret?: string;
   enabled?: boolean;
 }
@@ -53,6 +66,8 @@ function buildApp(opts: BuildOpts = {}) {
       groupMessagesService: (opts.groupMessagesService ?? makeGroupMessagesService()) as any,
       // biome-ignore lint/suspicious/noExplicitAny: mock cross-type compat
       instanceService: (opts.instanceService ?? makeInstanceService()) as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cross-type compat
+      participantsService: (opts.participantsService ?? makeParticipantsService()) as any,
       webhookSecret: opts.secret ?? WEBHOOK_SECRET,
       enabled: opts.enabled ?? true,
     })
@@ -92,12 +107,18 @@ const ACCEPTED_TEXT_PAYLOAD = {
 
 let gms: MockGroupMessagesService;
 let instances: MockInstanceService;
+let participants: MockParticipantsService;
 let app: ReturnType<typeof buildApp>;
 
 beforeEach(() => {
   gms = makeGroupMessagesService();
   instances = makeInstanceService();
-  app = buildApp({ groupMessagesService: gms, instanceService: instances });
+  participants = makeParticipantsService();
+  app = buildApp({
+    groupMessagesService: gms,
+    instanceService: instances,
+    participantsService: participants,
+  });
 });
 
 describe("POST /webhooks/zapi/on-message-received", () => {
@@ -259,6 +280,38 @@ describe("POST /webhooks/zapi/on-message-received", () => {
       if (!call) throw new Error("ingestZapi should have been called");
       const [, ctx] = call as unknown as [unknown, { providerInstanceId: string | null }];
       expect(ctx.providerInstanceId).toBe(null);
+    });
+  });
+
+  describe("evento de participante", () => {
+    it("delega para participantsService.ingestZapiWebhook e não chama ingestZapi", async () => {
+      participants.ingestZapiWebhook = mock(() =>
+        Promise.resolve({ status: "accepted" as const, eventType: "joined_add" as const })
+      );
+
+      const res = await post(
+        app,
+        `/webhooks/zapi/on-message-received?secret=${WEBHOOK_SECRET}`,
+        ACCEPTED_TEXT_PAYLOAD
+      );
+      expect(res.status).toBe(202);
+      const data = (await res.json()) as { status: string; kind: string; eventType: string };
+      expect(data.status).toBe("accepted");
+      expect(data.kind).toBe("participant_event");
+      expect(data.eventType).toBe("joined_add");
+      expect(participants.ingestZapiWebhook).toHaveBeenCalledTimes(1);
+      expect(gms.ingestZapi).not.toHaveBeenCalled();
+    });
+
+    it("segue pro fluxo de mensagem quando participantsService retorna ignored", async () => {
+      const res = await post(
+        app,
+        `/webhooks/zapi/on-message-received?secret=${WEBHOOK_SECRET}`,
+        ACCEPTED_TEXT_PAYLOAD
+      );
+      expect(res.status).toBe(202);
+      expect(participants.ingestZapiWebhook).toHaveBeenCalledTimes(1);
+      expect(gms.ingestZapi).toHaveBeenCalledTimes(1);
     });
   });
 });

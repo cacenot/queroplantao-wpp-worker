@@ -23,12 +23,19 @@ const reusedSchema = t.Object({
   sourceModerationId: t.String(),
 });
 
+const participantEventSchema = t.Object({
+  status: t.Literal("accepted"),
+  kind: t.Literal("participant_event"),
+  eventType: t.String(),
+});
+
 export const webhooksZapiModel = new Elysia({ name: "webhooksZapiModel" }).model({
   "webhooksZapi.ingest.response": t.Union([
     ignoredSchema,
     duplicateSchema,
     queuedSchema,
     reusedSchema,
+    participantEventSchema,
   ]),
 });
 

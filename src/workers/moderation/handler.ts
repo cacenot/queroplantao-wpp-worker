@@ -1,3 +1,4 @@
+import { ingestParticipantEvent } from "../../actions/whatsapp/ingest-participant-event.ts";
 import {
   type ModerateFn,
   moderateGroupMessage,
@@ -6,6 +7,7 @@ import type { GroupMessagesRepository } from "../../db/repositories/group-messag
 import type { MessageModerationsRepository } from "../../db/repositories/message-moderations-repository.ts";
 import type { JobSchema } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
+import type { GroupParticipantsService } from "../../services/group-participants/index.ts";
 import type { ModerationEnforcementService } from "../../services/moderation-enforcement/index.ts";
 
 export type ModerationExecuteDeps = {
@@ -13,6 +15,7 @@ export type ModerationExecuteDeps = {
   groupMessagesRepo: GroupMessagesRepository;
   moderate: ModerateFn;
   enforcement: ModerationEnforcementService;
+  participantsService: GroupParticipantsService;
 };
 
 export function createModerationExecuteJob(deps: ModerationExecuteDeps) {
@@ -24,6 +27,10 @@ export function createModerationExecuteJob(deps: ModerationExecuteDeps) {
           groupMessagesRepo: deps.groupMessagesRepo,
           moderate: deps.moderate,
           enforcement: deps.enforcement,
+        });
+      case "whatsapp.ingest_participant_event":
+        return ingestParticipantEvent(job.payload, {
+          participantsService: deps.participantsService,
         });
       case "whatsapp.delete_message":
       case "whatsapp.remove_participant":

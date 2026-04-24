@@ -22,6 +22,42 @@ const moderateGroupMessagePayloadSchema = z.object({
   moderationId: z.string().uuid(),
 });
 
+// `joined_inferred` só existe como event_type no DB para futuras
+// extensões — hoje a inferência via mensagem usa `recordSeenFromMessage` no
+// service e não gera row em `group_participant_events`. Se um dia voltar a
+// gerar, adicionar o literal aqui.
+const participantEventTypeSchema = z.enum([
+  "joined_add",
+  "joined_invite_link",
+  "joined_non_admin_add",
+  "left_removed",
+  "left_voluntary",
+  "promoted_admin",
+  "demoted_member",
+]);
+
+const participantIdentifierSchema = z.object({
+  phone: z.string().nullable(),
+  senderExternalId: z.string().nullable(),
+});
+
+const participantEventPayloadSchema = z.object({
+  providerInstanceId: z.string().uuid().nullable(),
+  event: z.object({
+    providerKind: z.literal("whatsapp_zapi"),
+    protocol: z.literal("whatsapp"),
+    groupExternalId: z.string().min(1),
+    eventType: participantEventTypeSchema,
+    targets: z.array(participantIdentifierSchema).min(1),
+    actor: participantIdentifierSchema.nullable(),
+    displayName: z.string().nullable(),
+    occurredAt: z.string().datetime(),
+    sourceWebhookMessageId: z.string(),
+    sourceNotification: z.string(),
+    rawPayload: z.unknown(),
+  }),
+});
+
 const baseJobSchema = z.object({
   id: z.string().uuid(),
   createdAt: z.string().datetime(),
@@ -43,10 +79,17 @@ export const moderateGroupMessageJobSchema = baseJobSchema.extend({
   payload: moderateGroupMessagePayloadSchema,
 });
 
+export const ingestParticipantEventJobSchema = baseJobSchema.extend({
+  type: z.literal("whatsapp.ingest_participant_event"),
+  payload: participantEventPayloadSchema,
+});
+
 export const jobSchema = z.discriminatedUnion("type", [
   deleteMessageJobSchema,
   removeParticipantJobSchema,
   moderateGroupMessageJobSchema,
+  ingestParticipantEventJobSchema,
 ]);
 
 export type JobSchema = z.infer<typeof jobSchema>;
+export type IngestParticipantEventPayload = z.infer<typeof participantEventPayloadSchema>;

@@ -1,0 +1,2 @@
+DROP INDEX "group_participant_events_dedupe_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "group_participant_events_dedupe_idx" ON "group_participant_events" USING btree (COALESCE("source_webhook_message_id", ''),"event_type",COALESCE("target_phone", ''),COALESCE("target_sender_external_id", ''));

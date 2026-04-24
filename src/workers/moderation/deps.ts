@@ -4,10 +4,13 @@ import { createModelRegistry } from "../../ai/model-registry.ts";
 import { loadActive } from "../../ai/moderation/loader.ts";
 import { env } from "../../config/env.ts";
 import { GroupMessagesRepository } from "../../db/repositories/group-messages-repository.ts";
+import { GroupParticipantsRepository } from "../../db/repositories/group-participants-repository.ts";
 import { MessageModerationsRepository } from "../../db/repositories/message-moderations-repository.ts";
+import { MessagingGroupsRepository } from "../../db/repositories/messaging-groups-repository.ts";
 import { PhonePoliciesRepository } from "../../db/repositories/phone-policies-repository.ts";
 import { logger } from "../../lib/logger.ts";
 import { ContentFilterService } from "../../services/content-filter/index.ts";
+import { GroupParticipantsService } from "../../services/group-participants/index.ts";
 import { ModerationEnforcementService } from "../../services/moderation-enforcement/index.ts";
 import { PhonePoliciesService } from "../../services/phone-policies/index.ts";
 import { buildSharedDeps, type SharedDeps } from "../shared/build-shared-deps.ts";
@@ -17,6 +20,7 @@ export type ModerationWorkerDeps = SharedDeps & {
   groupMessagesRepo: GroupMessagesRepository;
   enforcement: ModerationEnforcementService;
   moderate: ModerateFn;
+  participantsService: GroupParticipantsService;
 };
 
 export async function buildModerationWorkerDeps(): Promise<ModerationWorkerDeps> {
@@ -25,6 +29,8 @@ export async function buildModerationWorkerDeps(): Promise<ModerationWorkerDeps>
   const moderationsRepo = new MessageModerationsRepository(shared.db);
   const groupMessagesRepo = new GroupMessagesRepository(shared.db);
   const phonePoliciesRepo = new PhonePoliciesRepository(shared.db);
+  const messagingGroupsRepo = new MessagingGroupsRepository(shared.db);
+  const groupParticipantsRepo = new GroupParticipantsRepository(shared.db);
 
   const phonePoliciesService = new PhonePoliciesService({ repo: phonePoliciesRepo });
   const contentFilter = new ContentFilterService();
@@ -35,6 +41,11 @@ export async function buildModerationWorkerDeps(): Promise<ModerationWorkerDeps>
     logger,
     contentFilter,
     contentFilterEnabled: env.MODERATION_CONTENT_FILTER_ENABLED,
+  });
+
+  const participantsService = new GroupParticipantsService({
+    repo: groupParticipantsRepo,
+    messagingGroupsRepo,
   });
 
   // Config de moderação é arquivo .md versionado em `src/ai/moderation/versions/`.
@@ -64,5 +75,6 @@ export async function buildModerationWorkerDeps(): Promise<ModerationWorkerDeps>
     groupMessagesRepo,
     enforcement,
     moderate,
+    participantsService,
   };
 }

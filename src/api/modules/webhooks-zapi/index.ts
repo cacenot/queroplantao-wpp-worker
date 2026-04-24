@@ -5,6 +5,7 @@ import {
 } from "../../../gateways/whatsapp/zapi/message-normalizer.ts";
 import { logger } from "../../../lib/logger.ts";
 import type { GroupMessagesService } from "../../../services/group-messages/group-messages-service.ts";
+import type { GroupParticipantsService } from "../../../services/group-participants/index.ts";
 import type { MessagingProviderInstanceService } from "../../../services/messaging-provider-instance/index.ts";
 import { bodyLimitPlugin } from "../../shared/body-limit.ts";
 import { errorResponseSchema } from "../../shared/error-envelope.ts";
@@ -16,12 +17,14 @@ const MAX_BODY_SIZE = 1 * 1024 * 1024;
 export interface WebhooksZapiModuleDeps {
   groupMessagesService: GroupMessagesService;
   instanceService: MessagingProviderInstanceService;
+  participantsService: GroupParticipantsService;
   webhookSecret: string;
   enabled: boolean;
 }
 
 export function webhooksZapiModule(deps: WebhooksZapiModuleDeps) {
-  const { groupMessagesService, instanceService, webhookSecret, enabled } = deps;
+  const { groupMessagesService, instanceService, participantsService, webhookSecret, enabled } =
+    deps;
 
   return new Elysia({ name: "webhooks-zapi-module", tags: ["webhooks"] })
     .use(bodyLimitPlugin({ max: MAX_BODY_SIZE }))
@@ -51,6 +54,30 @@ export function webhooksZapiModule(deps: WebhooksZapiModuleDeps) {
           return { error: "Validation failed", details: parsed.error.flatten() };
         }
 
+        // — 1. Evento de participante? (GROUP_PARTICIPANT_ADD/REMOVE/LEAVE/PROMOTE/DEMOTE,
+        //   MEMBERSHIP_APPROVAL_REQUEST). Curto-circuito barato: só olha `notification`.
+        const participantResult = await participantsService.ingestZapiWebhook(parsed.data);
+        if (participantResult.status === "accepted") {
+          set.status = 202;
+          return {
+            status: "accepted" as const,
+            kind: "participant_event" as const,
+            eventType: participantResult.eventType,
+          };
+        }
+        // Se veio um `notification` mas não foi mapeado, NÃO é uma mensagem — loga
+        // warn e retorna ignored sem passar pelo pipeline de mensagem (que seria
+        // descartado de qualquer jeito e só paga parse extra).
+        if (participantResult.reason === "unknown-notification") {
+          logger.warn(
+            { notification: participantResult.notification },
+            "Webhook Z-API — notification desconhecida (não mapeada)"
+          );
+          set.status = 202;
+          return { status: "ignored" as const, reason: "unknown-notification" as const };
+        }
+
+        // — 2. Pipeline normal de mensagem de grupo.
         const result = extractZapiGroupMessage(parsed.data);
         if (result.status === "ignored") {
           logger.debug({ reason: result.reason }, "Webhook Z-API — mensagem descartada");

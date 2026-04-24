@@ -23,6 +23,7 @@ export function composeApp(deps: ApiDeps, webhookConfig: WebhookConfig) {
       webhooksZapiModule({
         groupMessagesService: deps.groupMessagesService,
         instanceService: deps.instanceService,
+        participantsService: deps.participantsService,
         webhookSecret: webhookConfig.secret,
         enabled: webhookConfig.enabled,
       })

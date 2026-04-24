@@ -134,6 +134,8 @@ export const zapiReceivedWebhookSchema = z
     status: z.string().optional(),
     type: z.string().optional(),
     notification: z.string().optional(),
+    notificationParameters: z.array(z.string()).optional(),
+    requestMethod: z.string().optional(),
     waitingMessage: z.boolean().optional(),
     viewOnce: z.boolean().optional(),
     forwarded: z.boolean().optional(),

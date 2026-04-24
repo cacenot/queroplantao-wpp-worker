@@ -19,14 +19,16 @@ describe("jobs/routing", () => {
     expect(queueForJob("whatsapp.remove_participant")).toBe("wpp.zapi");
   });
 
-  it("roteia moderate pra fila moderation", () => {
+  it("roteia moderate e ingest_participant_event pra fila moderation", () => {
     expect(queueForJob("whatsapp.moderate_group_message")).toBe("wpp.moderation");
+    expect(queueForJob("whatsapp.ingest_participant_event")).toBe("wpp.moderation");
   });
 
-  it("priority: delete=10, remove=7, moderate=undefined", () => {
+  it("priority: delete=10, remove=7, moderate/ingest_participant_event=undefined", () => {
     expect(priorityForJob("whatsapp.delete_message")).toBe(10);
     expect(priorityForJob("whatsapp.remove_participant")).toBe(7);
     expect(priorityForJob("whatsapp.moderate_group_message")).toBeUndefined();
+    expect(priorityForJob("whatsapp.ingest_participant_event")).toBeUndefined();
   });
 
   it("retry e dlq seguem convenção <queue>.retry / .dlq", () => {
