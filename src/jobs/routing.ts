@@ -13,7 +13,7 @@ export type JobType = JobSchema["type"];
  * job só toca DB (zero Z-API), então reaproveitar o prefetch=5 do moderation-worker
  * é mais barato que subir um terceiro processo hoje. Quando adicionarmos webhooks
  * de outros providers (WhatsMeow, Business API, Telegram), vale separar um
- * `wpp.ingestion` dedicado — aí o worker de moderation volta a ter escopo fechado.
+ * `messaging.ingestion` dedicado — aí o worker de moderation volta a ter escopo fechado.
  */
 export function queueForJob(type: JobType): string {
   switch (type) {

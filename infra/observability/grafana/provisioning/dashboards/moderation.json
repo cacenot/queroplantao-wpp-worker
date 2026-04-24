@@ -1,7 +1,7 @@
 {
-  "uid": "wpp-moderation",
-  "title": "WPP Moderation",
-  "tags": ["wpp-worker", "moderation"],
+  "uid": "moderation",
+  "title": "Moderation",
+  "tags": ["messaging", "moderation"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,

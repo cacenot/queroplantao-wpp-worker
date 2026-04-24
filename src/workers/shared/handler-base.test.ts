@@ -202,7 +202,7 @@ describe("handler-base — happy path", () => {
 describe("handler-base — retry", () => {
   const retryableErr = new Error("transient");
 
-  it("delete: 1ª tentativa falha → publica em wpp.zapi.retry com priority 10 e DROP", async () => {
+  it("delete: 1ª tentativa falha → publica em messaging.zapi.retry com priority 10 e DROP", async () => {
     const executeJob = () => Promise.reject(retryableErr);
     const taskService = makeTaskService({
       claimForExecution: mock(() =>
@@ -217,14 +217,14 @@ describe("handler-base — retry", () => {
     expect(result).toBe(ConsumerStatus.DROP);
     expect(deps.publisher.send).toHaveBeenCalledTimes(1);
     expect(deps.publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.zapi.retry", durable: true, priority: 10 },
+      { routingKey: "messaging.zapi.retry", durable: true, priority: 10 },
       { ...DELETE_MESSAGE_JOB, attempt: 1 }
     );
     expect(deps.taskService.markRetrying).toHaveBeenCalledWith(DELETE_MESSAGE_JOB.id);
     expect(deps.taskService.markFailed).toHaveBeenCalledTimes(0);
   });
 
-  it("moderate: falha retryable → publica em wpp.moderation.retry sem priority", async () => {
+  it("moderate: falha retryable → publica em messaging.moderation.retry sem priority", async () => {
     const executeJob = () => Promise.reject(retryableErr);
     const taskService = makeTaskService({
       claimForExecution: mock(() =>
@@ -237,7 +237,7 @@ describe("handler-base — retry", () => {
     await handler(makeMsg(MODERATE_JOB));
 
     expect(deps.publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.moderation.retry", durable: true, priority: undefined },
+      { routingKey: "messaging.moderation.retry", durable: true, priority: undefined },
       expect.anything()
     );
   });
@@ -261,12 +261,12 @@ describe("handler-base — retry", () => {
 
     expect(deps.publisher.send).toHaveBeenCalledTimes(1);
     expect(deps.publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.zapi.retry", durable: true, priority: 10 },
+      { routingKey: "messaging.zapi.retry", durable: true, priority: 10 },
       expect.anything()
     );
   });
 
-  it("attempt > maxRetries → DLQ (wpp.zapi.dlq), markFailed, DROP", async () => {
+  it("attempt > maxRetries → DLQ (messaging.zapi.dlq), markFailed, DROP", async () => {
     const executeJob = () => Promise.reject(retryableErr);
     const taskService = makeTaskService({
       claimForExecution: mock(() =>
@@ -286,7 +286,7 @@ describe("handler-base — retry", () => {
     expect(result).toBe(ConsumerStatus.DROP);
     expect(deps.publisher.send).toHaveBeenCalledTimes(1);
     expect(deps.publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.zapi.dlq", durable: true, priority: 10 },
+      { routingKey: "messaging.zapi.dlq", durable: true, priority: 10 },
       { ...DELETE_MESSAGE_JOB, attempt: 4 }
     );
     expect(deps.taskService.markFailed).toHaveBeenCalledTimes(1);
@@ -307,7 +307,7 @@ describe("handler-base — retry", () => {
 
     expect(result).toBe(ConsumerStatus.DROP);
     expect(deps.publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.zapi.dlq", durable: true, priority: 10 },
+      { routingKey: "messaging.zapi.dlq", durable: true, priority: 10 },
       expect.anything()
     );
     expect(deps.taskService.markFailed).toHaveBeenCalledTimes(1);
@@ -374,7 +374,7 @@ describe("handler-base — retry", () => {
 
     expect(deps.publisher.send).toHaveBeenCalledTimes(1);
     expect(deps.publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.zapi.retry", durable: true, priority: 10 },
+      { routingKey: "messaging.zapi.retry", durable: true, priority: 10 },
       { ...DELETE_MESSAGE_JOB, attempt: 2 }
     );
   });

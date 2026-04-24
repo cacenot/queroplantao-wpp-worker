@@ -20,12 +20,17 @@ export function initSentry(): void {
   if (initialized) return;
   if (!env.SENTRY_DSN) return;
 
+  // SERVICE_NAME é setada pelos scripts de start (package.json) — mesma var usada pelo logger.
+  const serviceName = process.env.SERVICE_NAME;
+
   Sentry.init({
     dsn: env.SENTRY_DSN,
     environment: env.SENTRY_ENVIRONMENT,
     release: env.SENTRY_RELEASE,
+    serverName: serviceName,
     tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
     profilesSampleRate: env.SENTRY_PROFILES_SAMPLE_RATE,
+    initialScope: serviceName ? { tags: { service: serviceName } } : undefined,
     beforeSend(event) {
       if (event.request?.url) event.request.url = sanitizeUrl(event.request.url);
       if (event.breadcrumbs) {

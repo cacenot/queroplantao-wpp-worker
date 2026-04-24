@@ -42,7 +42,7 @@ describe("declareQueueTopology", () => {
     const { rabbit, calls } = makeRabbit();
 
     const topology = await declareQueueTopology(rabbit, {
-      mainQueue: "wpp.moderation",
+      mainQueue: "messaging.moderation",
       retryDelayMs: 5000,
       maxRetries: 2,
     });
@@ -50,26 +50,26 @@ describe("declareQueueTopology", () => {
     expect(calls).toHaveLength(3);
 
     const main = calls[0];
-    expect(main?.queue).toBe("wpp.moderation");
+    expect(main?.queue).toBe("messaging.moderation");
     expect(main?.durable).toBe(true);
     expect(main?.arguments).toBeUndefined();
 
     const retry = calls[1];
-    expect(retry?.queue).toBe("wpp.moderation.retry");
+    expect(retry?.queue).toBe("messaging.moderation.retry");
     expect(retry?.durable).toBe(true);
     expect(retry?.arguments).toEqual({
       "x-message-ttl": 5000,
       "x-dead-letter-exchange": "",
-      "x-dead-letter-routing-key": "wpp.moderation",
+      "x-dead-letter-routing-key": "messaging.moderation",
     });
 
     const dlq = calls[2];
-    expect(dlq?.queue).toBe("wpp.moderation.dlq");
+    expect(dlq?.queue).toBe("messaging.moderation.dlq");
     expect(dlq?.durable).toBe(true);
     expect(dlq?.arguments).toBeUndefined();
 
-    expect(topology.retryQueue).toBe("wpp.moderation.retry");
-    expect(topology.dlqName).toBe("wpp.moderation.dlq");
+    expect(topology.retryQueue).toBe("messaging.moderation.retry");
+    expect(topology.dlqName).toBe("messaging.moderation.dlq");
     expect(topology.priority).toBeUndefined();
   });
 
@@ -77,7 +77,7 @@ describe("declareQueueTopology", () => {
     const { rabbit, calls } = makeRabbit();
 
     const topology = await declareQueueTopology(rabbit, {
-      mainQueue: "wpp.zapi",
+      mainQueue: "messaging.zapi",
       retryDelayMs: 5000,
       maxRetries: 2,
       priority: 10,
@@ -90,7 +90,7 @@ describe("declareQueueTopology", () => {
       "x-max-priority": 10,
       "x-message-ttl": 5000,
       "x-dead-letter-exchange": "",
-      "x-dead-letter-routing-key": "wpp.zapi",
+      "x-dead-letter-routing-key": "messaging.zapi",
     });
     expect(calls[2]?.arguments).toEqual({ "x-max-priority": 10 });
     expect(topology.priority).toBe(10);

@@ -8,11 +8,11 @@ const envSchema = z.object({
   AMQP_URL: z.string().url({ message: "AMQP_URL deve ser uma URL válida" }),
   // Fila do whatsapp-zapi worker (delete_message + remove_participant). Usa x-max-priority=10
   // pra garantir delete (priority 10) antes de remove (priority 7).
-  AMQP_ZAPI_QUEUE: z.string().min(1).default("wpp.zapi"),
+  AMQP_ZAPI_QUEUE: z.string().min(1).default("messaging.zapi"),
   // Prefetch zapi: 1 (serial) — lease Z-API já coordena acesso por provider
   AMQP_ZAPI_PREFETCH: z.coerce.number().int().positive().default(1),
   // Fila do moderation worker (moderate_group_message). Sem priority (um único tipo).
-  AMQP_MODERATION_QUEUE: z.string().min(1).default("wpp.moderation"),
+  AMQP_MODERATION_QUEUE: z.string().min(1).default("messaging.moderation"),
   // Prefetch moderation: 5 — LLM é I/O bound e não toca Z-API, paralelismo ok
   AMQP_MODERATION_PREFETCH: z.coerce.number().int().positive().default(5),
   // TTL (ms) da fila de retry — delay antes de cada re-tentativa

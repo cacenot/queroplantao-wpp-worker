@@ -7,8 +7,8 @@ Referência rápida para navegar o código e saber onde mexer. Se você nunca to
 O projeto é uma **API + dois workers especializados** que executam ações em plataformas de messaging (hoje WhatsApp via Z-API; em breve WhatsMeow, WhatsApp Business API e Telegram). Três serviços independentes que compartilham o mesmo código:
 
 - **API** (`src/api/`) — HTTP server (Elysia) que recebe tasks via `POST /tasks`, expõe CRUD de provider instances em `/providers/instances` e publica na fila AMQP roteando por `job.type`. Documentação OpenAPI em `/docs`.
-- **Worker zapi** (`src/workers/whatsapp-zapi/`) — consumer da fila `wpp.zapi`. Executa `whatsapp.delete_message` e `whatsapp.remove_participant`. Prefetch serial (1) — o lease distribuído coordena acesso por provider. `x-max-priority=10` garante delete (priority 10) antes de remove (7).
-- **Worker moderation** (`src/workers/moderation/`) — consumer da fila `wpp.moderation`. Executa `whatsapp.moderate_group_message` (LLM). Prefetch 5 — I/O bound, paralelismo seguro.
+- **wpp-zapi-worker** (`src/workers/whatsapp-zapi/`) — consumer da fila `messaging.zapi`. Executa `whatsapp.delete_message` e `whatsapp.remove_participant`. Prefetch serial (1) — o lease distribuído coordena acesso por provider. `x-max-priority=10` garante delete (priority 10) antes de remove (7).
+- **moderation-worker** (`src/workers/moderation/`) — consumer da fila `messaging.moderation`. Executa `whatsapp.moderate_group_message` e `whatsapp.ingest_participant_event`. Prefetch 5 — I/O bound, paralelismo seguro.
 
 O switch por tipo é feito em [`src/jobs/routing.ts`](../src/jobs/routing.ts) (`queueForJob`/`priorityForJob`) — fonte única consultada tanto pelo `TaskService.enqueue` (publish) quanto pelo `handler-base` (retry/DLQ).
 
@@ -159,18 +159,18 @@ Erros de execução disparam retry via TTL+DLX nativo do LavinMQ/RabbitMQ. O nú
 **Topologies declaradas no startup** (`src/jobs/topology.ts` chama `declareQueueTopology` de `src/lib/retry-topology.ts`). Cada worker declara as duas no boot — e a API também — para fechar a janela de corrida onde a API publicaria antes de qualquer worker subir. `queueDeclare` é idempotente com os mesmos args.
 
 ```
-wpp.zapi              (x-max-priority=10)        ← whatsapp.delete_message + whatsapp.remove_participant
-wpp.zapi.retry        (x-message-ttl + DLX → wpp.zapi, x-max-priority=10)
-wpp.zapi.dlq          (x-max-priority=10, sem TTL — inspeção e replay manual)
+messaging.zapi              (x-max-priority=10)        ← whatsapp.delete_message + whatsapp.remove_participant
+messaging.zapi.retry        (x-message-ttl + DLX → messaging.zapi, x-max-priority=10)
+messaging.zapi.dlq          (x-max-priority=10, sem TTL — inspeção e replay manual)
 
-wpp.moderation        (sem priority)             ← whatsapp.moderate_group_message
-wpp.moderation.retry  (x-message-ttl + DLX → wpp.moderation)
-wpp.moderation.dlq    (sem TTL — inspeção manual)
+messaging.moderation        (sem priority)             ← whatsapp.moderate_group_message
+messaging.moderation.retry  (x-message-ttl + DLX → messaging.moderation)
+messaging.moderation.dlq    (sem TTL — inspeção manual)
 ```
 
 Priority por tipo (em `src/jobs/routing.ts`): `delete_message=10`, `remove_participant=7`, `moderate_group_message=undefined`. Garante delete antes de remove na fila zapi; se delete falha, mensagem ainda é visível e a remoção sozinha é inofensiva.
 
-Cada fila tem retry+DLQ próprios — `wpp.zapi.dlq` é distinta de `wpp.moderation.dlq`. Backoff exponencial não está implementado (TTL fixo); se necessário, voltar a N filas dedicadas por escala (LavinMQ sofre head-of-line blocking em per-message TTL).
+Cada fila tem retry+DLQ próprios — `messaging.zapi.dlq` é distinta de `messaging.moderation.dlq`. Backoff exponencial não está implementado (TTL fixo); se necessário, voltar a N filas dedicadas por escala (LavinMQ sofre head-of-line blocking em per-message TTL).
 
 **Fluxo por cenário** (igual para ambas as filas):
 
@@ -184,18 +184,19 @@ Cada fila tem retry+DLQ próprios — `wpp.zapi.dlq` é distinta de `wpp.moderat
 
 Para marcar um erro como permanente (sem retry), lançar `NonRetryableError` de `src/lib/errors.ts`.
 
-> **Atenção ao alterar TTL ou priority em produção:** redeclarar uma fila com args diferentes dispara `PRECONDITION_FAILED` no bootstrap. Delete a fila via `rabbitmqadmin` antes do deploy, ou versione o nome (ex.: `wpp.zapi.retry.v2`).
+> **Atenção ao alterar TTL ou priority em produção:** redeclarar uma fila com args diferentes dispara `PRECONDITION_FAILED` no bootstrap. Delete a fila via `rabbitmqadmin` antes do deploy, ou versione o nome (ex.: `messaging.zapi.retry.v2`).
+
 
 **Debug:**
 
 ```bash
 # Inspecionar DLQs
-rabbitmqadmin get queue=wpp.zapi.dlq count=10
-rabbitmqadmin get queue=wpp.moderation.dlq count=10
+rabbitmqadmin get queue=messaging.zapi.dlq count=10
+rabbitmqadmin get queue=messaging.moderation.dlq count=10
 
 # Ver mensagens aguardando retry
-rabbitmqadmin get queue=wpp.zapi.retry count=10
-rabbitmqadmin get queue=wpp.moderation.retry count=10
+rabbitmqadmin get queue=messaging.zapi.retry count=10
+rabbitmqadmin get queue=messaging.moderation.retry count=10
 ```
 
 ### Limitações atuais
@@ -220,7 +221,7 @@ Zero mudança nas actions.
 2. Criar `src/gateways/telegram/{impl}/` com a implementação (ex.: `bot-api/`).
 3. Criar `src/workers/telegram/{index.ts,handler.ts,deps.ts}` análogo aos workers existentes, montando um `ProviderGatewayRegistry<TelegramProvider>` agrupado por `redis_key`. Adicionar Dockerfile + compose em `infra/docker/`.
 4. Criar actions em `src/actions/telegram/`.
-5. Adicionar novos `type` ao discriminated union em `src/jobs/schemas.ts` com prefixo `telegram.` — os payloads precisam carregar `providerInstanceId` também. Mapear no `src/jobs/routing.ts` (provavelmente uma fila `wpp.telegram` ou similar) e declarar a topology em `src/jobs/topology.ts`.
+5. Adicionar novos `type` ao discriminated union em `src/jobs/schemas.ts` com prefixo `telegram.` — os payloads precisam carregar `providerInstanceId` também. Mapear no `src/jobs/routing.ts` (provavelmente uma fila `messaging.telegram` ou similar) e declarar a topology em `src/jobs/topology.ts`.
 
 ## Rate limiting distribuído
 
@@ -281,9 +282,9 @@ Todos os jobs seguem o formato:
 |---|---|---|---|
 | `DATABASE_URL` | string | — | API + Workers |
 | `AMQP_URL` | string (URL) | — | API + Workers |
-| `AMQP_ZAPI_QUEUE` | string | `wpp.zapi` | API + Workers |
+| `AMQP_ZAPI_QUEUE` | string | `messaging.zapi` | API + Workers |
 | `AMQP_ZAPI_PREFETCH` | number | `1` | Worker zapi |
-| `AMQP_MODERATION_QUEUE` | string | `wpp.moderation` | API + Workers |
+| `AMQP_MODERATION_QUEUE` | string | `messaging.moderation` | API + Workers |
 | `AMQP_MODERATION_PREFETCH` | number | `5` | Worker moderation |
 | `AMQP_RETRY_DELAY_MS` | number (ms) | `120000` | API + Workers |
 | `AMQP_RETRY_MAX_RETRIES` | number | `3` | API + Workers |

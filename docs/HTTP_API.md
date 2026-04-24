@@ -360,8 +360,8 @@ Resposta quando degradado — conexao AMQP perdida (`503 Service Unavailable`):
 
 - `HTTP_PORT`: porta do servidor HTTP (default `3000`)
 - `HTTP_API_KEY`: chave obrigatoria para `POST /tasks`
-- `AMQP_ZAPI_QUEUE`: fila do worker zapi (default `wpp.zapi`)
-- `AMQP_MODERATION_QUEUE`: fila do worker de moderação (default `wpp.moderation`)
+- `AMQP_ZAPI_QUEUE`: fila do worker zapi (default `messaging.zapi`)
+- `AMQP_MODERATION_QUEUE`: fila do worker de moderação (default `messaging.moderation`)
 - `REDIS_URL`: URL de conexao Redis para rate limiting distribuido
 
 Roteamento por `job.type` em [`src/jobs/routing.ts`](../src/jobs/routing.ts).
@@ -395,8 +395,8 @@ Isso inicia LavinMQ, Redis e Postgres com:
 Configurar `.env` (copiar de `.env.example`) e rodar cada worker em terminal separado:
 
 ```bash
-bun run dev:worker:zapi          # consumer wpp.zapi
-bun run dev:worker:moderation    # consumer wpp.moderation
+bun run dev:worker:zapi          # consumer messaging.zapi
+bun run dev:worker:moderation    # consumer messaging.moderation
 bun run dev:api                  # API HTTP
 ```
 

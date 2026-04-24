@@ -1,4 +1,4 @@
-# wpp-zapi-worker — consome wpp.zapi (delete_message + remove_participant).
+# wpp-zapi-worker — consome messaging.zapi (delete_message + remove_participant).
 # Health server na porta 3011. Coolify aponta pra este compose ou diretamente
 # pra infra/docker/worker-zapi.Dockerfile.
 services:
@@ -8,6 +8,20 @@ services:
       dockerfile: infra/docker/worker-zapi.Dockerfile
     ports:
       - "3011:3011"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AMQP_URL: ${AMQP_URL}
+      REDIS_URL: ${REDIS_URL}
+      ZAPI_BASE_URL: ${ZAPI_BASE_URL}
+      ZAPI_CLIENT_TOKEN: ${ZAPI_CLIENT_TOKEN}
+      QP_ADMIN_API_URL: ${QP_ADMIN_API_URL}
+      QP_ADMIN_API_TOKEN: ${QP_ADMIN_API_TOKEN}
+      QP_ADMIN_API_SERVICE_TOKEN: ${QP_ADMIN_API_SERVICE_TOKEN}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-}
+      SENTRY_PROFILES_SAMPLE_RATE: ${SENTRY_PROFILES_SAMPLE_RATE:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3011/health || exit 1"]
       interval: 30s

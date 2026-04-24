@@ -1,4 +1,4 @@
-# wpp-moderation-worker — consome wpp.moderation (moderate_group_message).
+# moderation-worker — consome messaging.moderation (moderate_group_message + ingest_participant_event).
 # Health server na porta 3012. Coolify aponta pra este compose ou diretamente
 # pra infra/docker/worker-moderation.Dockerfile.
 services:
@@ -8,6 +8,19 @@ services:
       dockerfile: infra/docker/worker-moderation.Dockerfile
     ports:
       - "3012:3012"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AMQP_URL: ${AMQP_URL}
+      REDIS_URL: ${REDIS_URL}
+      QP_ADMIN_API_URL: ${QP_ADMIN_API_URL}
+      QP_ADMIN_API_TOKEN: ${QP_ADMIN_API_TOKEN}
+      QP_ADMIN_API_SERVICE_TOKEN: ${QP_ADMIN_API_SERVICE_TOKEN}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-}
+      SENTRY_PROFILES_SAMPLE_RATE: ${SENTRY_PROFILES_SAMPLE_RATE:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3012/health || exit 1"]
       interval: 30s

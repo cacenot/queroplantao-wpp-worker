@@ -8,7 +8,7 @@ import { startHttpServer } from "./server.ts";
 initSentry();
 
 async function main() {
-  logger.info("Iniciando wpp-api");
+  logger.info("Iniciando messaging-api");
   registerCrashHandlers(logger);
 
   const deps = await buildDeps();
@@ -33,7 +33,7 @@ async function main() {
     isHealthy: () => healthy,
   });
 
-  logger.info({ port: env.HTTP_PORT }, "wpp-api pronta");
+  logger.info({ port: env.HTTP_PORT }, "messaging-api pronta");
 
   // --- Graceful shutdown: fecha todas as conexões em ordem ---
   async function shutdown(signal: string) {

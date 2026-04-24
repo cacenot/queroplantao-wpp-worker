@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# wpp-api — HTTP API + publisher de jobs
+# messaging-api — HTTP API + publisher de jobs
 # ──────────────────────────────────────────────────────────────
 FROM oven/bun:1.3-alpine AS deps
 
@@ -23,7 +23,7 @@ COPY --chown=appuser:appgroup package.json tsconfig.json ./
 USER appuser
 
 ENV NODE_ENV=production
-ENV SERVICE_NAME=wpp-api
+ENV SERVICE_NAME=messaging-api
 
 EXPOSE 3000
 

@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# wpp-moderation-worker — consome wpp.moderation (moderate_group_message)
+# moderation-worker — consome messaging.moderation (moderate_group_message + ingest_participant_event)
 # ──────────────────────────────────────────────────────────────
 FROM oven/bun:1.3-alpine AS deps
 
@@ -23,7 +23,7 @@ COPY --chown=appuser:appgroup package.json tsconfig.json ./
 USER appuser
 
 ENV NODE_ENV=production
-ENV SERVICE_NAME=wpp-moderation-worker
+ENV SERVICE_NAME=moderation-worker
 
 EXPOSE 3012
 

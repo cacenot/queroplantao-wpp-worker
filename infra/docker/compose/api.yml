@@ -1,12 +1,32 @@
-# wpp-api — serviço HTTP. Coolify aponta pra este compose ou diretamente pra
+# messaging-api — serviço HTTP. Coolify aponta pra este compose ou diretamente pra
 # infra/docker/api.Dockerfile.
 services:
   api:
     build:
       context: ../../..
       dockerfile: infra/docker/api.Dockerfile
-    ports:
-      - "3000:3000"
+    # Sem `ports:` (binding de host) pra não conflitar entre réplicas —
+    # o proxy do Coolify descobre as réplicas e faz load balance via `expose`.
+    expose:
+      - "3000"
+    deploy:
+      replicas: 2
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AMQP_URL: ${AMQP_URL}
+      REDIS_URL: ${REDIS_URL}
+      HTTP_API_KEY: ${HTTP_API_KEY}
+      ZAPI_BASE_URL: ${ZAPI_BASE_URL}
+      ZAPI_CLIENT_TOKEN: ${ZAPI_CLIENT_TOKEN}
+      ZAPI_RECEIVED_WEBHOOK_SECRET: ${ZAPI_RECEIVED_WEBHOOK_SECRET}
+      QP_ADMIN_API_URL: ${QP_ADMIN_API_URL}
+      QP_ADMIN_API_TOKEN: ${QP_ADMIN_API_TOKEN}
+      QP_ADMIN_API_SERVICE_TOKEN: ${QP_ADMIN_API_SERVICE_TOKEN}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-}
+      SENTRY_PROFILES_SAMPLE_RATE: ${SENTRY_PROFILES_SAMPLE_RATE:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
       interval: 30s

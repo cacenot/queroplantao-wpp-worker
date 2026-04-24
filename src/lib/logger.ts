@@ -25,4 +25,4 @@ export function createLogger(name: string) {
 
 // Singleton lido por todos os módulos compartilhados.
 // SERVICE_NAME é definida pelo script de start de cada entry point.
-export const logger = createLogger(process.env.SERVICE_NAME ?? "wpp-worker");
+export const logger = createLogger(process.env.SERVICE_NAME ?? "messaging-worker");

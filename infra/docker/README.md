@@ -7,9 +7,9 @@ observabilidade (Prometheus + Grafana), ver [`infra/observability/`](../observab
 
 ```
 infra/docker/
-├── api.Dockerfile               # wpp-api               — porta 3000
+├── api.Dockerfile               # messaging-api         — porta 3000
 ├── worker-zapi.Dockerfile       # wpp-zapi-worker       — health 3011
-├── worker-moderation.Dockerfile # wpp-moderation-worker — health 3012
+├── worker-moderation.Dockerfile # moderation-worker     — health 3012
 └── compose/
     ├── dev-deps.yml             # LavinMQ + Redis + Postgres (uso local)
     ├── api.yml
@@ -25,9 +25,9 @@ camada quando o `package.json`/`bun.lockb` não muda.
 
 | Serviço | Porta | Uso |
 |---|---|---|
-| `wpp-api` | `3000` | HTTP público |
+| `messaging-api` | `3000` | HTTP público |
 | `wpp-zapi-worker` | `3011` | health check (Coolify / Docker `HEALTHCHECK`) |
-| `wpp-moderation-worker` | `3012` | health check |
+| `moderation-worker` | `3012` | health check |
 
 Defaults configuráveis via env (`HTTP_PORT`, `WORKER_ZAPI_HEALTH_PORT`,
 `WORKER_MODERATION_HEALTH_PORT`). Workers expõem `GET /health` retornando `200`
@@ -37,8 +37,8 @@ quando o consumer AMQP está conectado e sem erros recentes, `503` caso contrár
 
 | Worker | Fila principal | Tipos de job | Prefetch | Priority |
 |---|---|---|---|---|
-| `wpp-zapi-worker` | `wpp.zapi` | `whatsapp.delete_message`, `whatsapp.remove_participant` | 1 (serial) | `x-max-priority=10` |
-| `wpp-moderation-worker` | `wpp.moderation` | `whatsapp.moderate_group_message` | 5 | — |
+| `wpp-zapi-worker` | `messaging.zapi` | `whatsapp.delete_message`, `whatsapp.remove_participant` | 1 (serial) | `x-max-priority=10` |
+| `moderation-worker` | `messaging.moderation` | `whatsapp.moderate_group_message`, `whatsapp.ingest_participant_event` | 5 | — |
 
 Cada fila tem suas próprias `.retry` (TTL+DLX) e `.dlq`. O roteamento por `job.type`
 é decidido em [`src/jobs/routing.ts`](../../src/jobs/routing.ts).
@@ -106,7 +106,7 @@ Definir no painel de cada serviço — ver tabela completa em
 
 Mínimo por serviço:
 
-- **API** (`wpp-api`): `DATABASE_URL`, `AMQP_URL`, `REDIS_URL`, `HTTP_API_KEY`,
+- **API** (`messaging-api`): `DATABASE_URL`, `AMQP_URL`, `REDIS_URL`, `HTTP_API_KEY`,
   `ZAPI_*`, `QP_ADMIN_API_*`, `ZAPI_RECEIVED_WEBHOOK_SECRET`.
 - **Zapi worker**: as mesmas, exceto `HTTP_API_KEY` e `ZAPI_RECEIVED_WEBHOOK_*`.
 - **Moderation worker**: as mesmas + chave do provider de IA ativo

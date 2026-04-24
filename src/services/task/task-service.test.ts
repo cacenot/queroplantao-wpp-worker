@@ -127,13 +127,17 @@ describe("TaskService.enqueue", () => {
       JobSchema,
     ][];
     const byId = new Map(calls.map(([env, job]) => [job.id, env]));
-    expect(byId.get(jobA.id)).toEqual({ routingKey: "wpp.zapi", durable: true, priority: 10 });
+    expect(byId.get(jobA.id)).toEqual({
+      routingKey: "messaging.zapi",
+      durable: true,
+      priority: 10,
+    });
     expect(byId.get(jobB.id)).toEqual({
-      routingKey: "wpp.moderation",
+      routingKey: "messaging.moderation",
       durable: true,
       priority: undefined,
     });
-    expect(byId.get(jobC.id)).toEqual({ routingKey: "wpp.zapi", durable: true, priority: 7 });
+    expect(byId.get(jobC.id)).toEqual({ routingKey: "messaging.zapi", durable: true, priority: 7 });
   });
 
   it("não publica jobs duplicados (não presentes em insertedSet)", async () => {
@@ -151,7 +155,7 @@ describe("TaskService.enqueue", () => {
 
     expect(publisher.send).toHaveBeenCalledTimes(1);
     expect(publisher.send).toHaveBeenCalledWith(
-      { routingKey: "wpp.zapi", durable: true, priority: 10 },
+      { routingKey: "messaging.zapi", durable: true, priority: 10 },
       jobB
     );
     expect(repo.markQueued).toHaveBeenCalledTimes(1);

@@ -26,10 +26,10 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
         path: "/docs",
         documentation: {
           info: {
-            title: "WPP Worker API",
+            title: "Messaging API",
             version: "0.1.0",
             description:
-              "API interna do wpp-worker. Gerencia ingestão de tasks e registry de provider instances.",
+              "API interna do messaging-api. Gerencia ingestão de tasks e registry de provider instances.",
           },
           tags: [
             { name: "tasks", description: "Publicação de jobs no AMQP" },
