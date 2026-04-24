@@ -106,16 +106,104 @@ que Coolify aponta pra raiz do repo — necessário pro build copiar `src/`,
 
 ### Variáveis de ambiente
 
-Definir no painel de cada serviço — ver tabela completa em
+Os composes referenciam envs via `${VAR}` — Coolify resolve os valores a partir
+do painel de cada resource. Pra evitar duplicar valores idênticos nos três
+resources, usar **Shared Variables** a nível do Project:
+
+#### 1. Project → Shared Variables
+
+Criar uma entrada com o valor real pra cada uma (painel do Project):
+
+| Shared Variable | Observação |
+|---|---|
+| `DATABASE_URL` | compartilhado pelos 3 resources |
+| `AMQP_URL` | idem |
+| `REDIS_URL` | idem |
+| `QP_ADMIN_API_URL` | idem |
+| `QP_ADMIN_API_TOKEN` | idem |
+| `QP_ADMIN_API_SERVICE_TOKEN` | idem |
+| `ZAPI_BASE_URL` | api + worker-zapi |
+| `ZAPI_CLIENT_TOKEN` | api + worker-zapi |
+| `SENTRY_DSN` | 3 resources; opcional (vazio vira no-op) |
+| `SENTRY_ENVIRONMENT` | ex.: `production` |
+| `SENTRY_TRACES_SAMPLE_RATE` | ex.: `0.1` |
+| `SENTRY_PROFILES_SAMPLE_RATE` | ex.: `0` |
+
+#### 2. Resource → Environment Variables
+
+Em cada resource (api / worker-zapi / worker-moderation), declarar o nome da
+env (igual ao do compose) apontando pra shared via `{{project.NOME}}`. Vars
+específicas do resource (não-compartilhadas) vão com valor literal.
+
+**`messaging-api` (api.yml)** — 3 literais + 12 shared:
+
+```
+# literais
+HTTP_API_KEY=<valor>
+ZAPI_RECEIVED_WEBHOOK_SECRET=<valor>
+
+# shared
+DATABASE_URL={{project.DATABASE_URL}}
+AMQP_URL={{project.AMQP_URL}}
+REDIS_URL={{project.REDIS_URL}}
+ZAPI_BASE_URL={{project.ZAPI_BASE_URL}}
+ZAPI_CLIENT_TOKEN={{project.ZAPI_CLIENT_TOKEN}}
+QP_ADMIN_API_URL={{project.QP_ADMIN_API_URL}}
+QP_ADMIN_API_TOKEN={{project.QP_ADMIN_API_TOKEN}}
+QP_ADMIN_API_SERVICE_TOKEN={{project.QP_ADMIN_API_SERVICE_TOKEN}}
+SENTRY_DSN={{project.SENTRY_DSN}}
+SENTRY_ENVIRONMENT={{project.SENTRY_ENVIRONMENT}}
+SENTRY_TRACES_SAMPLE_RATE={{project.SENTRY_TRACES_SAMPLE_RATE}}
+SENTRY_PROFILES_SAMPLE_RATE={{project.SENTRY_PROFILES_SAMPLE_RATE}}
+```
+
+**`wpp-zapi-worker` (worker-zapi.yml)** — só shared:
+
+```
+DATABASE_URL={{project.DATABASE_URL}}
+AMQP_URL={{project.AMQP_URL}}
+REDIS_URL={{project.REDIS_URL}}
+ZAPI_BASE_URL={{project.ZAPI_BASE_URL}}
+ZAPI_CLIENT_TOKEN={{project.ZAPI_CLIENT_TOKEN}}
+QP_ADMIN_API_URL={{project.QP_ADMIN_API_URL}}
+QP_ADMIN_API_TOKEN={{project.QP_ADMIN_API_TOKEN}}
+QP_ADMIN_API_SERVICE_TOKEN={{project.QP_ADMIN_API_SERVICE_TOKEN}}
+SENTRY_DSN={{project.SENTRY_DSN}}
+SENTRY_ENVIRONMENT={{project.SENTRY_ENVIRONMENT}}
+SENTRY_TRACES_SAMPLE_RATE={{project.SENTRY_TRACES_SAMPLE_RATE}}
+SENTRY_PROFILES_SAMPLE_RATE={{project.SENTRY_PROFILES_SAMPLE_RATE}}
+```
+
+**`moderation-worker` (worker-moderation.yml)** — 1 literal + 10 shared, **sem ZAPI_***:
+
+```
+# literal (ou OPENAI_API_KEY / ANTHROPIC_API_KEY — só o provider ativo)
+GOOGLE_GENERATIVE_AI_API_KEY=<valor>
+
+# shared
+DATABASE_URL={{project.DATABASE_URL}}
+AMQP_URL={{project.AMQP_URL}}
+REDIS_URL={{project.REDIS_URL}}
+QP_ADMIN_API_URL={{project.QP_ADMIN_API_URL}}
+QP_ADMIN_API_TOKEN={{project.QP_ADMIN_API_TOKEN}}
+QP_ADMIN_API_SERVICE_TOKEN={{project.QP_ADMIN_API_SERVICE_TOKEN}}
+SENTRY_DSN={{project.SENTRY_DSN}}
+SENTRY_ENVIRONMENT={{project.SENTRY_ENVIRONMENT}}
+SENTRY_TRACES_SAMPLE_RATE={{project.SENTRY_TRACES_SAMPLE_RATE}}
+SENTRY_PROFILES_SAMPLE_RATE={{project.SENTRY_PROFILES_SAMPLE_RATE}}
+```
+
+#### Sintaxe de shared variables
+
+- `{{project.X}}` — compartilhada no nível do **Project** (usado aqui).
+- `{{team.X}}` — nível do Team (cross-project, típico pra DSNs globais).
+- `{{environment.X}}` — nível do Environment (production/staging).
+- `team`, `project`, `environment` são palavras literais — **não** substituir
+  pelo nome real.
+- Docs: https://coolify.io/docs/knowledge-base/environment-variables#shared-variables
+
+Tabela completa de envs (incluindo defaults opcionais) em
 [`docs/architecture.md`](../../docs/architecture.md#variáveis-de-ambiente).
-
-Mínimo por serviço:
-
-- **API** (`messaging-api`): `DATABASE_URL`, `AMQP_URL`, `REDIS_URL`, `HTTP_API_KEY`,
-  `ZAPI_*`, `QP_ADMIN_API_*`, `ZAPI_RECEIVED_WEBHOOK_SECRET`.
-- **Zapi worker**: as mesmas, exceto `HTTP_API_KEY` e `ZAPI_RECEIVED_WEBHOOK_*`.
-- **Moderation worker**: as mesmas + chave do provider de IA ativo
-  (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`).
 
 ### Migração do layout antigo
 
