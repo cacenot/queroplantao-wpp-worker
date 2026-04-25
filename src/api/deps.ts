@@ -74,6 +74,7 @@ export async function buildDeps() {
     taskService,
     redis,
     logger,
+    blacklistEnforcementEnabled: env.MODERATION_BLACKLIST_ENFORCEMENT_ENABLED,
   });
 
   const moderationConfig = loadActive();

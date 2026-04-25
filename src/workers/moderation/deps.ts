@@ -41,6 +41,7 @@ export async function buildModerationWorkerDeps(): Promise<ModerationWorkerDeps>
     logger,
     contentFilter,
     contentFilterEnabled: env.MODERATION_CONTENT_FILTER_ENABLED,
+    blacklistEnforcementEnabled: env.MODERATION_BLACKLIST_ENFORCEMENT_ENABLED,
   });
 
   const participantsService = new GroupParticipantsService({

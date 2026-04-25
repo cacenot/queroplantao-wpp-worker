@@ -50,6 +50,7 @@ function makeService(
     redisAcquired?: "OK" | null;
     contentFilterHit?: ContentFilterHit | null;
     contentFilterEnabled?: boolean;
+    blacklistEnforcementEnabled?: boolean;
   } = {}
 ) {
   const phonePolicies: FakePhonePolicies = {
@@ -84,6 +85,7 @@ function makeService(
     logger,
     contentFilter,
     contentFilterEnabled: overrides.contentFilterEnabled ?? false,
+    blacklistEnforcementEnabled: overrides.blacklistEnforcementEnabled ?? true,
     removeParticipantDedupTtlSeconds: 300,
   });
 
@@ -141,6 +143,28 @@ describe("ModerationEnforcementService.evaluateAndEnforce", () => {
     await svc.evaluateAndEnforce(makeInput());
     expect(phonePolicies.isBlacklisted).toHaveBeenCalled();
     expect(task.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("flag desligada: não consulta blacklist nem enforça, mesmo com hit registrado", async () => {
+    const { svc, phonePolicies, task } = makeService({
+      isBlacklisted: makeView(),
+      blacklistEnforcementEnabled: false,
+    });
+    await svc.evaluateAndEnforce(makeInput());
+    expect(phonePolicies.isBlacklisted).not.toHaveBeenCalled();
+    expect(task.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("flag desligada: content-filter ainda enforça quando habilitado e há hit", async () => {
+    const { svc, phonePolicies, task } = makeService({
+      isBlacklisted: makeView(),
+      blacklistEnforcementEnabled: false,
+      contentFilterEnabled: true,
+      contentFilterHit: { motivo: "content", match: "promo" },
+    });
+    await svc.evaluateAndEnforce(makeInput());
+    expect(phonePolicies.isBlacklisted).not.toHaveBeenCalled();
+    expect(task.enqueue).toHaveBeenCalledTimes(1);
   });
 
   it("blacklist hit + dedup miss → enfileira delete + remove_participant", async () => {

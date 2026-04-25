@@ -32,6 +32,9 @@ type ModerationEnforcementServiceOptions = {
   logger: Logger;
   contentFilter?: ContentFilterService;
   contentFilterEnabled?: boolean;
+  // Default true: preserva comportamento histórico. Desligar inibe a consulta de
+  // blacklist e o ban automático correspondente (content-filter segue independente).
+  blacklistEnforcementEnabled?: boolean;
   // Janela em segundos durante a qual um mesmo (grupo, phone) só é kickado uma vez.
   // O delete não dedupa porque externalMessageId é único por mensagem.
   removeParticipantDedupTtlSeconds?: number;
@@ -46,6 +49,7 @@ export class ModerationEnforcementService {
   private readonly logger: Logger;
   private readonly contentFilter: ContentFilterService | undefined;
   private readonly contentFilterEnabled: boolean;
+  private readonly blacklistEnforcementEnabled: boolean;
   private readonly removeDedupTtl: number;
 
   constructor(options: ModerationEnforcementServiceOptions) {
@@ -55,6 +59,7 @@ export class ModerationEnforcementService {
     this.logger = options.logger;
     this.contentFilter = options.contentFilter;
     this.contentFilterEnabled = options.contentFilterEnabled ?? false;
+    this.blacklistEnforcementEnabled = options.blacklistEnforcementEnabled ?? true;
     this.removeDedupTtl =
       options.removeParticipantDedupTtlSeconds ?? DEFAULT_REMOVE_DEDUP_TTL_SECONDS;
   }
@@ -73,7 +78,9 @@ export class ModerationEnforcementService {
     const bypass = await this.phonePoliciesService.isBypassed(matchInput);
     if (bypass) return;
 
-    const blacklistHit = await this.phonePoliciesService.isBlacklisted(matchInput);
+    const blacklistHit = this.blacklistEnforcementEnabled
+      ? await this.phonePoliciesService.isBlacklisted(matchInput)
+      : null;
 
     // Content-filter: segunda porta de enforcement (determinístico, atrás de feature flag)
     let contentHit: ContentFilterHit | null = null;

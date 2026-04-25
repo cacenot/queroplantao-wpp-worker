@@ -73,6 +73,12 @@ const envSchema = z.object({
     .string()
     .default("false")
     .transform((v) => v === "true" || v === "1"),
+  // Enforcement por blacklist (delete + kick em hit). Default true preserva comportamento;
+  // desligar via "false" inibe a consulta de blacklist e o ban automático correspondente.
+  MODERATION_BLACKLIST_ENFORCEMENT_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true" || v === "1"),
   // Janela (ms) do bucket de dedupe de ingestão — colapsa a mesma mensagem em várias instâncias Z-API
   INGESTION_DEDUPE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   // Janela (ms) de reuso por contentHash + moderationVersion — default: 15 dias
