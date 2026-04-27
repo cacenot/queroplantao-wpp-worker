@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/bun";
 import type { Logger } from "pino";
 import type { AsyncMessage, Publisher } from "rabbitmq-client";
 import { ConsumerStatus } from "rabbitmq-client";
@@ -6,7 +7,6 @@ import { dlqForJob, priorityForJob, retryQueueForJob } from "../../jobs/routing.
 import { type JobSchema, jobSchema } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
 import { logger } from "../../lib/logger.ts";
-import { Sentry } from "../../lib/sentry.ts";
 import type { TaskService } from "../../services/task/index.ts";
 
 type JobLogger = Logger;

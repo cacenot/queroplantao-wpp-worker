@@ -1,5 +1,5 @@
+import * as Sentry from "@sentry/bun";
 import type { Logger } from "pino";
-import { Sentry } from "./sentry.ts";
 
 export function registerCrashHandlers(logger: Logger): void {
   process.on("uncaughtException", async (err) => {

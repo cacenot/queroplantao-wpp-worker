@@ -1,12 +1,10 @@
+import * as Sentry from "@sentry/bun";
 import { env } from "../config/env.ts";
 import { registerCrashHandlers } from "../lib/crash-handlers.ts";
 import { computeHealth } from "../lib/health.ts";
 import { logger } from "../lib/logger.ts";
-import { initSentry } from "../lib/sentry.ts";
 import { buildDeps } from "./deps.ts";
 import { startHttpServer } from "./server.ts";
-
-initSentry();
 
 async function main() {
   logger.info("Iniciando messaging-api");
@@ -34,6 +32,7 @@ async function main() {
       await deps.rabbit.close();
       await deps.redis.quit();
       await deps.sql.end({ timeout: 5 });
+      await Sentry.close(2000);
     } catch (err) {
       logger.warn({ err }, "Erro ao fechar conexões durante shutdown");
     }

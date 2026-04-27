@@ -1,7 +1,10 @@
-import * as Sentry from "@sentry/node";
+// Carregado via `bun --preload` para garantir que Sentry.init roda antes
+// de qualquer outro módulo (auto-instrumentation depende disso).
+// Nota: @sentry/bun não suporta profilesSampleRate — só @sentry/node tem.
+import * as Sentry from "@sentry/bun";
 import { env } from "../config/env.ts";
+import { logger } from "./logger.ts";
 
-let initialized = false;
 const SENSITIVE_QUERY_KEYS = ["secret", "token", "api_key", "apikey"];
 
 function sanitizeUrl(url: string): string {
@@ -16,10 +19,7 @@ function sanitizeUrl(url: string): string {
   }
 }
 
-export function initSentry(): void {
-  if (initialized) return;
-  if (!env.SENTRY_DSN) return;
-
+if (env.SENTRY_DSN) {
   // SERVICE_NAME é setada pelos scripts de start (package.json) — mesma var usada pelo logger.
   const serviceName = process.env.SERVICE_NAME;
 
@@ -29,7 +29,6 @@ export function initSentry(): void {
     release: env.SENTRY_RELEASE,
     serverName: serviceName,
     tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
-    profilesSampleRate: env.SENTRY_PROFILES_SAMPLE_RATE,
     initialScope: serviceName ? { tags: { service: serviceName } } : undefined,
     beforeSend(event) {
       if (event.request?.url) event.request.url = sanitizeUrl(event.request.url);
@@ -44,7 +43,7 @@ export function initSentry(): void {
     },
   });
 
-  initialized = true;
+  logger.info({ environment: env.SENTRY_ENVIRONMENT, service: serviceName }, "Sentry init ok");
+} else {
+  logger.warn("SENTRY_DSN ausente — captura de erros desativada");
 }
-
-export { Sentry };
