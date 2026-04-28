@@ -77,11 +77,37 @@ class FakeRepository {
   }
 
   async listEnabledZApiRows(): Promise<EnabledZApiRow[]> {
-    return [];
+    return this.collectZApiRows({ onlyEnabled: true });
   }
 
   async listAllZApiRows(): Promise<EnabledZApiRow[]> {
-    return [];
+    return this.collectZApiRows({ onlyEnabled: false });
+  }
+
+  private collectZApiRows(opts: { onlyEnabled: boolean }): EnabledZApiRow[] {
+    const rows: EnabledZApiRow[] = [];
+    for (const base of this.base.values()) {
+      if (base.archivedAt !== null) continue;
+      if (base.protocol !== "whatsapp") continue;
+      if (base.providerKind !== "whatsapp_zapi") continue;
+      if (opts.onlyEnabled && !base.isEnabled) continue;
+      const zapi = this.zapi.get(base.id);
+      if (!zapi) continue;
+      rows.push({
+        providerId: base.id,
+        displayName: base.displayName,
+        executionStrategy: base.executionStrategy,
+        redisKey: base.redisKey,
+        instanceId: zapi.zapiInstanceId,
+        instanceToken: zapi.instanceToken,
+        customClientToken: zapi.customClientToken,
+      });
+    }
+    rows.sort(
+      (a, b) =>
+        a.displayName.localeCompare(b.displayName) || a.instanceId.localeCompare(b.instanceId)
+    );
+    return rows;
   }
 
   async existsByZapiInstanceId(zapiInstanceId: string): Promise<boolean> {
@@ -761,5 +787,57 @@ describe("PATCH /providers/instances/:id/disable e /enable", () => {
       method: "PATCH",
     });
     expect(res.status).toBe(404);
+  });
+});
+
+// Cobertura cruzada do registry: documenta que após disable, a instância sai de
+// `listEnabledZApiRows` (consumido pelo seed-initial), mas continua em
+// `listAllZApiRows` (consumido pelo bootstrap dos workers e CLIs operacionais).
+// Essa é a propriedade que permite onboarding de uma instância antes dela virar
+// tráfego automatizado.
+describe("Registry: listEnabledZApiRows × listAllZApiRows", () => {
+  it("instância recém-criada aparece em ambas as listas", async () => {
+    const id = await createOne(ctx);
+
+    const enabled = await ctx.repo.listEnabledZApiRows();
+    const all = await ctx.repo.listAllZApiRows();
+
+    expect(enabled.map((r) => r.providerId)).toContain(id);
+    expect(all.map((r) => r.providerId)).toContain(id);
+  });
+
+  it("após disable: sai de listEnabledZApiRows mas continua em listAllZApiRows", async () => {
+    const id = await createOne(ctx);
+    await makeRequest(ctx.app, `/providers/instances/${id}/disable`, { method: "PATCH" });
+
+    const enabled = await ctx.repo.listEnabledZApiRows();
+    const all = await ctx.repo.listAllZApiRows();
+
+    expect(enabled.map((r) => r.providerId)).not.toContain(id);
+    expect(all.map((r) => r.providerId)).toContain(id);
+  });
+
+  it("mistura enabled+disabled: cada lista reflete seu filtro", async () => {
+    const enabledId = await createOne(ctx, { zapiInstanceId: "z-en" });
+    const disabledId = await createOne(ctx, {
+      displayName: "inst-disabled",
+      zapiInstanceId: "z-dis",
+    });
+    await makeRequest(ctx.app, `/providers/instances/${disabledId}/disable`, { method: "PATCH" });
+
+    const enabledIds = (await ctx.repo.listEnabledZApiRows()).map((r) => r.providerId);
+    const allIds = (await ctx.repo.listAllZApiRows()).map((r) => r.providerId);
+
+    expect(enabledIds).toEqual([enabledId]);
+    expect(allIds.sort()).toEqual([enabledId, disabledId].sort());
+  });
+
+  it("re-enable traz a instância de volta para listEnabledZApiRows", async () => {
+    const id = await createOne(ctx);
+    await makeRequest(ctx.app, `/providers/instances/${id}/disable`, { method: "PATCH" });
+    await makeRequest(ctx.app, `/providers/instances/${id}/enable`, { method: "PATCH" });
+
+    const enabled = await ctx.repo.listEnabledZApiRows();
+    expect(enabled.map((r) => r.providerId)).toContain(id);
   });
 });

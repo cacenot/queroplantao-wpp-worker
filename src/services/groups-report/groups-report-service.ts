@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, max, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../../db/client.ts";
 import { groupParticipants } from "../../db/schema/group-participants.ts";
 import { messagingGroups } from "../../db/schema/messaging-groups.ts";
@@ -38,21 +38,34 @@ export class GroupsReportService {
     const waId = toWaId(phone);
     if (!waId) return { ok: false, error: { kind: "instance_missing_phone" } };
 
-    // Counts em messaging_groups (total / com invite / lastSynced).
+    // Subquery reutilizada nos dois FILTER: "instância está em messaging_groups.external_id?".
+    // Mantém o cálculo de `missingFromGroups` consistente com `listMissingForInstance`
+    // (mesmo predicado NOT EXISTS) — sem isso, presença em grupos sem invite_url
+    // distorceria a subtração aritmética.
+    const presentSubquery = sql`EXISTS (
+      SELECT 1 FROM ${groupParticipants} gp
+      WHERE gp.group_external_id = ${messagingGroups.externalId}
+        AND gp.protocol = 'whatsapp'
+        AND gp.status = 'active'
+        AND gp.wa_id = ${waId}
+    )`;
+
     const [groupTotals] = await db
       .select({
         totalGroups: sql<number>`count(*)::int`,
         groupsWithInviteUrl: sql<number>`count(*) FILTER (WHERE ${messagingGroups.inviteUrl} IS NOT NULL)::int`,
-        lastSyncedAt: max(messagingGroups.syncedAt),
+        groupsWithInstance: sql<number>`count(*) FILTER (WHERE ${presentSubquery})::int`,
+        missingFromGroups: sql<number>`count(*) FILTER (WHERE ${messagingGroups.inviteUrl} IS NOT NULL AND NOT ${presentSubquery})::int`,
+        lastSyncedAt: sql<Date | string | null>`max(${messagingGroups.syncedAt})`,
       })
       .from(messagingGroups)
       .where(eq(messagingGroups.protocol, "whatsapp"));
 
-    // Counts da instância em group_participants (presente / admin).
+    // groupsAsAdmin é por participação (não por grupo) — fica em query separada
+    // porque exige FROM group_participants, não messaging_groups.
     const [presence] = await db
       .select({
-        groupsWithInstance: sql<number>`count(DISTINCT ${groupParticipants.groupExternalId})::int`,
-        groupsAsAdmin: sql<number>`count(DISTINCT ${groupParticipants.groupExternalId}) FILTER (WHERE ${groupParticipants.role} IN ('admin', 'owner'))::int`,
+        groupsAsAdmin: sql<number>`count(DISTINCT ${groupParticipants.groupExternalId})::int`,
       })
       .from(groupParticipants)
       .where(
@@ -60,33 +73,23 @@ export class GroupsReportService {
           eq(groupParticipants.protocol, "whatsapp"),
           eq(groupParticipants.waId, waId),
           eq(groupParticipants.status, "active"),
-          isNotNull(groupParticipants.waId)
+          sql`${groupParticipants.role} IN ('admin', 'owner')`
         )
       );
 
-    const totalGroups = groupTotals?.totalGroups ?? 0;
-    const groupsWithInviteUrl = groupTotals?.groupsWithInviteUrl ?? 0;
-    const groupsWithInstance = presence?.groupsWithInstance ?? 0;
-    const groupsAsAdmin = presence?.groupsAsAdmin ?? 0;
-
-    // "Falta entrar" = grupos com invite e onde a instância não está presente.
-    // Usar `groupsWithInviteUrl` como teto (não dá pra entrar onde não tem invite).
-    const missingFromGroups = Math.max(0, groupsWithInviteUrl - groupsWithInstance);
-
+    const lastSyncedAtRaw = groupTotals?.lastSyncedAt ?? null;
     return {
       ok: true,
       report: {
         providerInstanceId,
         instanceWaId: waId,
-        totalGroups,
-        groupsWithInviteUrl,
-        groupsWithInstance,
-        groupsAsAdmin,
-        missingFromGroups,
+        totalGroups: groupTotals?.totalGroups ?? 0,
+        groupsWithInviteUrl: groupTotals?.groupsWithInviteUrl ?? 0,
+        groupsWithInstance: groupTotals?.groupsWithInstance ?? 0,
+        groupsAsAdmin: presence?.groupsAsAdmin ?? 0,
+        missingFromGroups: groupTotals?.missingFromGroups ?? 0,
         lastSyncedAt:
-          groupTotals?.lastSyncedAt instanceof Date
-            ? groupTotals.lastSyncedAt.toISOString()
-            : (groupTotals?.lastSyncedAt ?? null),
+          lastSyncedAtRaw instanceof Date ? lastSyncedAtRaw.toISOString() : lastSyncedAtRaw,
       },
     };
   }
