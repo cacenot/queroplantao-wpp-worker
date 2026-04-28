@@ -19,7 +19,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lavinmq_queue_messages_ready_count",
+          "expr": "lavinmq_detailed_queue_messages_ready",
           "legendFormat": "{{queue}}"
         }
       ],
@@ -34,7 +34,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lavinmq_queue_messages_unacked_count",
+          "expr": "lavinmq_detailed_queue_messages_unacked",
           "legendFormat": "{{queue}}"
         }
       ],
@@ -44,12 +44,13 @@
       "id": 3,
       "type": "timeseries",
       "title": "Consumers por fila",
+      "description": "Métrica exposta pela family `queue_consumer_count` no endpoint `/metrics/detailed`. Se o painel exibir \"No data\", rodar `curl 'http://lavinmq:15692/metrics/detailed?family=queue_consumer_count'` e ajustar o `expr` para o nome real do metric (provavelmente `lavinmq_detailed_queue_consumers`).",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "lavinmq_queue_consumers_count",
+          "expr": "lavinmq_detailed_queue_consumers",
           "legendFormat": "{{queue}}"
         }
       ],
@@ -58,19 +59,19 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Taxa publish vs deliver (msg/s)",
+      "title": "Taxa global delivered vs acknowledged (msg/s)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(lavinmq_queue_messages_publish_count[1m])",
-          "legendFormat": "publish — {{queue}}"
+          "expr": "rate(lavinmq_global_messages_delivered_total[1m])",
+          "legendFormat": "delivered"
         },
         {
           "refId": "B",
-          "expr": "rate(lavinmq_queue_messages_deliver_count[1m])",
-          "legendFormat": "deliver — {{queue}}"
+          "expr": "rate(lavinmq_global_messages_acknowledged_total[1m])",
+          "legendFormat": "acknowledged"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }

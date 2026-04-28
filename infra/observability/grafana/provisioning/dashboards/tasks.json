@@ -1,0 +1,111 @@
+{
+  "uid": "tasks",
+  "title": "Tasks",
+  "tags": ["messaging", "tasks"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Throughput por type (tasks/min)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('minute', created_at) AS time, type AS metric, count(*) AS value FROM tasks WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Distribuição atual por status",
+      "description": "Snapshot atual da tabela inteira, independente do time range do dashboard — fotografia do estado da fila agora.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT status, count(*) AS total FROM tasks GROUP BY 1 ORDER BY total DESC"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Latência total p50/p95 (created→completed, ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('minute', created_at) AS time, percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch from (completed_at - created_at)) * 1000) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch from (completed_at - created_at)) * 1000) AS p95 FROM tasks WHERE $__timeFilter(created_at) AND status = 'succeeded' AND completed_at IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Taxa de falha por type (últimas 24h)",
+      "description": "Janela fixa de 24h, independente do time range do dashboard — proporção de tasks com status='failed' por tipo.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT type, (count(*) FILTER (WHERE status = 'failed'))::float / NULLIF(count(*), 0) AS failure_rate FROM tasks WHERE created_at >= now() - interval '24 hours' GROUP BY 1 ORDER BY failure_rate DESC"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Distribuição de attempt (últimas 24h)",
+      "description": "Janela fixa de 24h, independente do time range do dashboard — quantas tasks foram tentadas N vezes.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT attempt::text AS attempt, count(*) AS total FROM tasks WHERE created_at >= now() - interval '24 hours' GROUP BY 1 ORDER BY attempt::int"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Top 10 erros por nome (últimas 24h, status=failed)",
+      "description": "Janela fixa de 24h, independente do time range do dashboard — visão consolidada de erros recentes para triagem rápida.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(error->>'name', 'unknown') AS error_name, count(*) AS total FROM tasks WHERE created_at >= now() - interval '24 hours' AND status = 'failed' GROUP BY 1 ORDER BY total DESC LIMIT 10"
+        }
+      ]
+    }
+  ]
+}

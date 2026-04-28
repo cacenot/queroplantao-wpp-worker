@@ -46,8 +46,17 @@ Conectar no Postgres do worker e executar:
 CREATE ROLE grafana_ro WITH LOGIN PASSWORD 'TROCAR-POR-SENHA-FORTE';
 GRANT CONNECT ON DATABASE queroplantao_messaging TO grafana_ro;
 GRANT USAGE ON SCHEMA public TO grafana_ro;
-GRANT SELECT ON message_moderations TO grafana_ro;
--- Liberar tabelas adicionais conforme dashboards forem crescendo.
+-- Cobre todas as tabelas referenciadas pelos dashboards atuais.
+GRANT SELECT ON
+  message_moderations,
+  tasks,
+  group_messages,
+  phone_policies,
+  group_participants,
+  group_participant_events,
+  zapi_instances,
+  zapi_instance_connection_events
+TO grafana_ro;
 ```
 
 Usar essas credenciais em `PG_USER_RO` / `PG_PASS_RO`.
@@ -75,7 +84,7 @@ Verificar o nome DNS interno que o Coolify atribui ao serviço LavinMQ (ex: `lav
 - **Dashboards** → ver "WPP Moderation" e "LavinMQ Overview" provisionados
 - Painéis devem popular se houver dados (worker rodando + mensagens processadas)
 
-Se um painel do LavinMQ aparecer vazio, conferir os nomes exatos das métricas em `http://<lavinmq-host>:15692/metrics` e ajustar `lavinmq.json`.
+Os painéis do dashboard "LavinMQ Overview" usam métricas per-queue (`lavinmq_detailed_queue_*`) que vêm do endpoint `/metrics/detailed`. Se um painel aparecer vazio, validar manualmente com `curl http://<lavinmq-host>:15692/metrics/detailed?family=queue_coarse_metrics` e ajustar o `prometheus.yml` se o nome de alguma família mudou na versão instalada.
 
 ## Sentry no worker
 
@@ -86,6 +95,7 @@ No recurso do **worker** (não da observabilidade), adicionar:
 | `SENTRY_DSN` | DSN do projeto criado no Sentry |
 | `SENTRY_ENVIRONMENT` | `production` (ou `staging`) |
 | `SENTRY_RELEASE` | opcional — sha do commit |
+| `SENTRY_TRACES_SAMPLE_RATE` | opcional — sample rate de tracing (0.0–1.0, default 0.1) |
 
 Sem `SENTRY_DSN`, o init é no-op (dev local não envia eventos).
 

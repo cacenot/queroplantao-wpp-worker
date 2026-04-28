@@ -1,0 +1,113 @@
+{
+  "uid": "phone-policies",
+  "title": "Phone Policies",
+  "tags": ["messaging", "policies"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Total atual por kind × source",
+      "description": "Snapshot atual da tabela inteira, independente do time range do dashboard — quebra por tipo de policy e origem.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT kind, source, count(*) AS total FROM phone_policies GROUP BY 1, 2 ORDER BY kind, total DESC"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Novas policies por dia, por kind",
+      "description": "Volume de policies criadas por dia (não cumulativo) — útil para identificar picos de blacklist automática vs. ações manuais.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, kind AS metric, count(*) AS value FROM phone_policies WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "Distribuição por protocol",
+      "description": "Snapshot atual da tabela inteira, independente do time range do dashboard.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT protocol, count(*) AS total FROM phone_policies GROUP BY 1 ORDER BY total DESC"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Policies com expires_at futuro",
+      "description": "Snapshot atual — quantas policies ativas têm expiração agendada.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS active_with_expiry FROM phone_policies WHERE expires_at IS NOT NULL AND expires_at > now()"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Top 10 reasons (blacklist)",
+      "description": "Snapshot atual da tabela inteira, independente do time range do dashboard — motivos mais frequentes nas policies de blacklist.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(reason, '∅') AS reason, count(*) AS total FROM phone_policies WHERE kind = 'blacklist' GROUP BY 1 ORDER BY total DESC LIMIT 10"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Origem das policies (source)",
+      "description": "Snapshot atual da tabela inteira, independente do time range do dashboard.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT source, count(*) AS total FROM phone_policies GROUP BY 1 ORDER BY total DESC"
+        }
+      ]
+    }
+  ]
+}
