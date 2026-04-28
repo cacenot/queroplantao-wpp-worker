@@ -59,6 +59,11 @@ GRANT SELECT ON
 TO grafana_ro;
 ```
 
+> Se o role já existe em produção e foi criado antes desta lista, basta re-rodar
+> só o bloco `GRANT SELECT ... TO grafana_ro;` — `GRANT` é idempotente. Sem
+> isso, os dashboards `tasks` e `phone_policies` retornam "permission denied"
+> silencioso ao serem abertos.
+
 Usar essas credenciais em `PG_USER_RO` / `PG_PASS_RO`.
 
 ### 2. Garantir networking compartilhado

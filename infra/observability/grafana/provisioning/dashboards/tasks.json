@@ -87,7 +87,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT attempt::text AS attempt, count(*) AS total FROM tasks WHERE created_at >= now() - interval '24 hours' GROUP BY 1 ORDER BY attempt::int"
+          "rawSql": "SELECT attempt::text AS attempt_label, count(*) AS total FROM tasks WHERE created_at >= now() - interval '24 hours' GROUP BY attempt ORDER BY attempt"
         }
       ]
     },
