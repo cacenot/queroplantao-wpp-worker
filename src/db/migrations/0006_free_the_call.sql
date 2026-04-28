@@ -1,0 +1,1 @@
+ALTER TYPE "public"."task_type" ADD VALUE 'whatsapp.join_group_via_invite';

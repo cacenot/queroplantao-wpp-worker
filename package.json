@@ -29,6 +29,8 @@
     "infra": "docker compose -f infra/docker/compose/dev-deps.yml up -d",
     "scripts": "=== Utility Scripts ===",
     "sync-groups": "bun run src/scripts/sync-groups.ts",
+    "sync-group-participants": "bun run src/scripts/sync-group-participants.ts",
+    "join-pending-groups": "bun run src/scripts/join-pending-groups.ts",
     "seed-initial": "bun run src/scripts/seed-initial/index.ts",
     "remove-spam": "bun run src/scripts/remove-spam.ts",
     "remove-by-phone": "bun run src/scripts/remove-by-phone.ts",

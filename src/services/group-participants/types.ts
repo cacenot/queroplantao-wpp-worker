@@ -1,4 +1,5 @@
 import type { GroupParticipantEventType } from "../../db/schema/group-participant-events.ts";
+import type { GroupParticipantRole } from "../../db/schema/group-participants.ts";
 import type {
   ParticipantEventIgnoreReason,
   ParticipantEventType,
@@ -7,6 +8,32 @@ import type {
 export type ParticipantIdentifier = {
   phone: string | null;
   senderExternalId: string | null;
+};
+
+export type SnapshotParticipant = {
+  phone: string | null;
+  senderExternalId: string | null;
+  waId: string | null;
+  role: GroupParticipantRole;
+};
+
+export type ApplySnapshotInput = {
+  providerInstanceId: string | null;
+  providerKind: "whatsapp_zapi";
+  protocol: "whatsapp";
+  groupExternalId: string;
+  participants: SnapshotParticipant[];
+  observedAt: Date;
+  // Quando true, marca participantes que não aparecem no snapshot como
+  // status="left", leaveReason="unknown". Útil pra reconciliar saídas que não
+  // tiveram webhook (ex.: snapshot inicial, reconnect prolongado).
+  markMissingAsLeft: boolean;
+};
+
+export type ApplySnapshotOutcome = {
+  upserted: number;
+  markedAsLeft: number;
+  totalParticipants: number;
 };
 
 export type ApplyParticipantEventInput = {

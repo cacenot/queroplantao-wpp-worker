@@ -190,3 +190,285 @@ describe("GroupParticipantsService.ingestZapiWebhook", () => {
     });
   });
 });
+
+describe("GroupParticipantsService.applySnapshot", () => {
+  type RepoRow = {
+    id: string;
+    phone: string | null;
+    senderExternalId: string | null;
+    waId: string | null;
+    role: "member" | "admin" | "owner";
+    status: "active" | "left";
+    messagingGroupId: string | null;
+  };
+
+  function makeRepo(initial: RepoRow[] = []): {
+    repo: GroupParticipantsRepository;
+    rows: RepoRow[];
+  } {
+    const rows: RepoRow[] = [...initial];
+    let nextId = 100;
+
+    const findByIdentifier = mock(
+      async (
+        _group: string,
+        _proto: string,
+        identifier: { phone: string | null; senderExternalId: string | null }
+      ) => {
+        if (identifier.senderExternalId) {
+          const r = rows.find((x) => x.senderExternalId === identifier.senderExternalId);
+          if (r) return r;
+        }
+        if (identifier.phone) {
+          const r = rows.find((x) => x.phone === identifier.phone);
+          if (r) return r;
+        }
+        return null;
+      }
+    );
+
+    const insert = mock(async (row: Partial<RepoRow>) => {
+      const id = `new-${nextId++}`;
+      const inserted: RepoRow = {
+        id,
+        phone: row.phone ?? null,
+        senderExternalId: row.senderExternalId ?? null,
+        waId: row.waId ?? null,
+        role: row.role ?? "member",
+        status: row.status ?? "active",
+        messagingGroupId: row.messagingGroupId ?? null,
+      };
+      rows.push(inserted);
+      return inserted;
+    });
+
+    const update = mock(async (id: string, patch: Partial<RepoRow>) => {
+      const r = rows.find((x) => x.id === id);
+      if (!r) throw new Error(`row ${id} not found`);
+      Object.assign(r, patch);
+      return r;
+    });
+
+    const findActiveByGroup = mock(async (_group: string, _proto: string) =>
+      rows.filter((r) => r.status === "active")
+    );
+
+    const hasOtherRowWithIdentifier = mock(async () => false);
+
+    return {
+      rows,
+      repo: {
+        findByIdentifier,
+        insert,
+        update,
+        findActiveByGroup,
+        hasOtherRowWithIdentifier,
+      } as unknown as GroupParticipantsRepository,
+    };
+  }
+
+  it("insere novos participantes com role correto", async () => {
+    const { repo, rows } = makeRepo();
+    const svc = new GroupParticipantsService({
+      repo,
+      messagingGroupsRepo: {
+        findByExternalId: mock(() => Promise.resolve({ id: "mg-1" })),
+      } as unknown as MessagingGroupsRepository,
+    });
+
+    const outcome = await svc.applySnapshot({
+      providerInstanceId: PROVIDER_INSTANCE,
+      providerKind: "whatsapp_zapi",
+      protocol: "whatsapp",
+      groupExternalId: GROUP_ID,
+      observedAt: new Date(),
+      markMissingAsLeft: false,
+      participants: [
+        {
+          phone: "+5511999990001",
+          senderExternalId: null,
+          waId: "5511999990001@s.whatsapp.net",
+          role: "admin",
+        },
+        {
+          phone: "+5511999990002",
+          senderExternalId: null,
+          waId: "5511999990002@s.whatsapp.net",
+          role: "member",
+        },
+      ],
+    });
+
+    expect(outcome.upserted).toBe(2);
+    expect(outcome.markedAsLeft).toBe(0);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.role).toBe("admin");
+    expect(rows[0]?.waId).toBe("5511999990001@s.whatsapp.net");
+    expect(rows[0]?.messagingGroupId).toBe("mg-1");
+  });
+
+  it("atualiza role e preenche waId em participantes existentes", async () => {
+    const { repo, rows } = makeRepo([
+      {
+        id: "existing-1",
+        phone: "+5511999990001",
+        senderExternalId: null,
+        waId: null,
+        role: "member",
+        status: "active",
+        messagingGroupId: null,
+      },
+    ]);
+    const svc = new GroupParticipantsService({
+      repo,
+      messagingGroupsRepo: {
+        findByExternalId: mock(() => Promise.resolve(null)),
+      } as unknown as MessagingGroupsRepository,
+    });
+
+    await svc.applySnapshot({
+      providerInstanceId: PROVIDER_INSTANCE,
+      providerKind: "whatsapp_zapi",
+      protocol: "whatsapp",
+      groupExternalId: GROUP_ID,
+      observedAt: new Date(),
+      markMissingAsLeft: false,
+      participants: [
+        {
+          phone: "+5511999990001",
+          senderExternalId: null,
+          waId: "5511999990001@s.whatsapp.net",
+          role: "admin",
+        },
+      ],
+    });
+
+    expect(rows[0]?.role).toBe("admin");
+    expect(rows[0]?.waId).toBe("5511999990001@s.whatsapp.net");
+    expect(rows[0]?.status).toBe("active");
+  });
+
+  it("preserva owner existente quando snapshot diz que é admin", async () => {
+    const { repo, rows } = makeRepo([
+      {
+        id: "owner-1",
+        phone: "+5511999990001",
+        senderExternalId: null,
+        waId: null,
+        role: "owner",
+        status: "active",
+        messagingGroupId: null,
+      },
+    ]);
+    const svc = new GroupParticipantsService({
+      repo,
+      messagingGroupsRepo: {
+        findByExternalId: mock(() => Promise.resolve(null)),
+      } as unknown as MessagingGroupsRepository,
+    });
+
+    await svc.applySnapshot({
+      providerInstanceId: PROVIDER_INSTANCE,
+      providerKind: "whatsapp_zapi",
+      protocol: "whatsapp",
+      groupExternalId: GROUP_ID,
+      observedAt: new Date(),
+      markMissingAsLeft: false,
+      participants: [
+        {
+          phone: "+5511999990001",
+          senderExternalId: null,
+          waId: null,
+          role: "admin",
+        },
+      ],
+    });
+
+    expect(rows[0]?.role).toBe("owner");
+  });
+
+  it("markMissingAsLeft marca participantes ativos ausentes do snapshot", async () => {
+    const { repo, rows } = makeRepo([
+      {
+        id: "still-1",
+        phone: "+5511999990001",
+        senderExternalId: null,
+        waId: null,
+        role: "member",
+        status: "active",
+        messagingGroupId: null,
+      },
+      {
+        id: "gone-1",
+        phone: "+5511999990099",
+        senderExternalId: null,
+        waId: null,
+        role: "member",
+        status: "active",
+        messagingGroupId: null,
+      },
+    ]);
+    const svc = new GroupParticipantsService({
+      repo,
+      messagingGroupsRepo: {
+        findByExternalId: mock(() => Promise.resolve(null)),
+      } as unknown as MessagingGroupsRepository,
+    });
+
+    const outcome = await svc.applySnapshot({
+      providerInstanceId: PROVIDER_INSTANCE,
+      providerKind: "whatsapp_zapi",
+      protocol: "whatsapp",
+      groupExternalId: GROUP_ID,
+      observedAt: new Date(),
+      markMissingAsLeft: true,
+      participants: [
+        {
+          phone: "+5511999990001",
+          senderExternalId: null,
+          waId: null,
+          role: "member",
+        },
+      ],
+    });
+
+    expect(outcome.markedAsLeft).toBe(1);
+    const gone = rows.find((r) => r.id === "gone-1");
+    expect(gone?.status).toBe("left");
+    const still = rows.find((r) => r.id === "still-1");
+    expect(still?.status).toBe("active");
+  });
+
+  it("markMissingAsLeft=false não toca participantes ausentes", async () => {
+    const { repo, rows } = makeRepo([
+      {
+        id: "gone-1",
+        phone: "+5511999990099",
+        senderExternalId: null,
+        waId: null,
+        role: "member",
+        status: "active",
+        messagingGroupId: null,
+      },
+    ]);
+    const svc = new GroupParticipantsService({
+      repo,
+      messagingGroupsRepo: {
+        findByExternalId: mock(() => Promise.resolve(null)),
+      } as unknown as MessagingGroupsRepository,
+    });
+
+    const outcome = await svc.applySnapshot({
+      providerInstanceId: PROVIDER_INSTANCE,
+      providerKind: "whatsapp_zapi",
+      protocol: "whatsapp",
+      groupExternalId: GROUP_ID,
+      observedAt: new Date(),
+      markMissingAsLeft: false,
+      participants: [],
+    });
+
+    expect(outcome.markedAsLeft).toBe(0);
+    expect(rows[0]?.status).toBe("active");
+  });
+});

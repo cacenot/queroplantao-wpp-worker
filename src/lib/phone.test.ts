@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { toE164, toZapiDigits } from "./phone.ts";
+import { toE164, toWaId, toZapiDigits } from "./phone.ts";
 
 describe("toE164", () => {
   it("retorna null para null/undefined/vazio", () => {
@@ -57,5 +57,31 @@ describe("toZapiDigits", () => {
 
   it("retorna como veio se não tem +", () => {
     expect(toZapiDigits("5547997490248")).toBe("5547997490248");
+  });
+});
+
+describe("toWaId", () => {
+  it("deriva canonical de phone E.164", () => {
+    expect(toWaId("+5547997490248")).toBe("5547997490248@s.whatsapp.net");
+  });
+
+  it("deriva canonical de Z-API digits", () => {
+    expect(toWaId("5547997490248")).toBe("5547997490248@s.whatsapp.net");
+  });
+
+  it("idempotente quando já vem no formato canonical", () => {
+    expect(toWaId("5547997490248@s.whatsapp.net")).toBe("5547997490248@s.whatsapp.net");
+  });
+
+  it("null-safe", () => {
+    expect(toWaId(null)).toBeNull();
+    expect(toWaId(undefined)).toBeNull();
+    expect(toWaId("")).toBeNull();
+    expect(toWaId("   ")).toBeNull();
+  });
+
+  it("retorna null para input fora do range de dígitos (8-15)", () => {
+    expect(toWaId("123")).toBeNull();
+    expect(toWaId("9999999999999999999999")).toBeNull();
   });
 });

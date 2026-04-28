@@ -1,4 +1,5 @@
 import type { MessagingInstance, MessagingProvider, ProviderExecutor } from "../types.ts";
+import type { ZApiGroupMetadataLight } from "./zapi/group-metadata-schema.ts";
 
 export interface WhatsAppInstance extends MessagingInstance {}
 
@@ -13,10 +14,17 @@ export interface RemoveParticipantPayload {
   phones: string[];
 }
 
+export interface AcceptGroupInviteResult {
+  success: boolean;
+  raw: unknown;
+}
+
 export interface WhatsAppProvider extends MessagingProvider {
   readonly instance: WhatsAppInstance;
   deleteMessage(payload: DeleteMessagePayload): Promise<void>;
   removeParticipant(payload: RemoveParticipantPayload): Promise<{ value: boolean }>;
+  fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadataLight>;
+  acceptGroupInvite(inviteCode: string): Promise<AcceptGroupInviteResult>;
 }
 
 export type WhatsAppExecutor = ProviderExecutor<WhatsAppProvider>;

@@ -22,6 +22,14 @@ const moderateGroupMessagePayloadSchema = z.object({
   moderationId: z.string().uuid(),
 });
 
+const joinGroupViaInvitePayloadSchema = z.object({
+  providerInstanceId: z.string().uuid(),
+  messagingGroupId: z.string().uuid(),
+  // Código puro do convite (último segmento do link `chat.whatsapp.com/<code>`).
+  // A Z-API retorna `success: false` quando inválido/expirado — sem retry.
+  inviteCode: z.string().min(1),
+});
+
 // `joined_inferred` só existe como event_type no DB para futuras
 // extensões — hoje a inferência via mensagem usa `recordSeenFromMessage` no
 // service e não gera row em `group_participant_events`. Se um dia voltar a
@@ -84,12 +92,19 @@ export const ingestParticipantEventJobSchema = baseJobSchema.extend({
   payload: participantEventPayloadSchema,
 });
 
+export const joinGroupViaInviteJobSchema = baseJobSchema.extend({
+  type: z.literal("whatsapp.join_group_via_invite"),
+  payload: joinGroupViaInvitePayloadSchema,
+});
+
 export const jobSchema = z.discriminatedUnion("type", [
   deleteMessageJobSchema,
   removeParticipantJobSchema,
   moderateGroupMessageJobSchema,
   ingestParticipantEventJobSchema,
+  joinGroupViaInviteJobSchema,
 ]);
 
 export type JobSchema = z.infer<typeof jobSchema>;
 export type IngestParticipantEventPayload = z.infer<typeof participantEventPayloadSchema>;
+export type JoinGroupViaInvitePayload = z.infer<typeof joinGroupViaInvitePayloadSchema>;

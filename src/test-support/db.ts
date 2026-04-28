@@ -7,8 +7,8 @@ import * as schema from "../db/schema/index.ts";
  * Cria um schema Postgres isolado por test suite e instancia Drizzle apontando para ele.
  * O search_path fica restrito ao schema criado, garantindo isolamento.
  *
- * Só as tabelas necessárias para os testes do retry (tasks) são materializadas — provider
- * registry e zapi instances não são necessárias aqui.
+ * Tabelas materializadas: tasks, phone_policies, group_messages, messaging_groups,
+ * group_participants, group_participant_events, messaging_provider_instances, zapi_instances.
  *
  * Use `drop()` em afterAll para limpar e encerrar a conexão.
  */
@@ -230,6 +230,53 @@ export async function createTestDb(): Promise<{
       ON "${schemaName}"."group_participant_events"
       (COALESCE("source_webhook_message_id", ''), "event_type",
        COALESCE("target_phone", ''), COALESCE("target_sender_external_id", ''));
+
+    CREATE TYPE "${schemaName}"."messaging_execution_strategy" AS ENUM ('leased', 'passthrough');
+    CREATE TYPE "${schemaName}"."zapi_connection_state" AS ENUM (
+      'unknown', 'connected', 'disconnected', 'pending', 'errored', 'unreachable'
+    );
+
+    CREATE TABLE "${schemaName}"."messaging_provider_instances" (
+      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "protocol" "${schemaName}"."messaging_protocol" NOT NULL,
+      "provider_kind" "${schemaName}"."messaging_provider_kind" NOT NULL,
+      "display_name" text NOT NULL,
+      "is_enabled" boolean NOT NULL DEFAULT true,
+      "execution_strategy" "${schemaName}"."messaging_execution_strategy" NOT NULL DEFAULT 'leased',
+      "redis_key" text NOT NULL,
+      "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "archived_at" timestamp with time zone
+    );
+    CREATE INDEX "messaging_provider_instances_protocol_enabled_idx_${schemaName}"
+      ON "${schemaName}"."messaging_provider_instances" ("protocol", "is_enabled");
+
+    CREATE TABLE "${schemaName}"."zapi_instances" (
+      "messaging_provider_instance_id" uuid PRIMARY KEY NOT NULL
+        REFERENCES "${schemaName}"."messaging_provider_instances"("id") ON DELETE CASCADE,
+      "zapi_instance_id" text NOT NULL,
+      "instance_token" text NOT NULL,
+      "custom_client_token" text,
+      "current_connection_state" "${schemaName}"."zapi_connection_state",
+      "current_status_reason" text,
+      "current_connected" boolean,
+      "current_smartphone_connected" boolean,
+      "current_phone_number" text,
+      "current_profile_name" text,
+      "current_profile_about" text,
+      "current_profile_image_url" text,
+      "current_original_device" text,
+      "current_session_id" integer,
+      "current_device_session_name" text,
+      "current_device_model" text,
+      "current_is_business" boolean,
+      "last_status_synced_at" timestamp with time zone,
+      "last_device_synced_at" timestamp with time zone,
+      "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX "zapi_instances_zapi_instance_id_idx_${schemaName}"
+      ON "${schemaName}"."zapi_instances" ("zapi_instance_id");
   `);
 
   const db = drizzle(sql, { schema });

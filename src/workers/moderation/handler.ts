@@ -34,6 +34,7 @@ export function createModerationExecuteJob(deps: ModerationExecuteDeps) {
         });
       case "whatsapp.delete_message":
       case "whatsapp.remove_participant":
+      case "whatsapp.join_group_via_invite":
         throw new NonRetryableError(
           `moderation-worker recebeu job ${job.type} (${job.id}) — routing quebrado`
         );

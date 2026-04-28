@@ -1,3 +1,4 @@
+import { acceptGroupInvite } from "../../actions/whatsapp/accept-group-invite.ts";
 import { deleteMessage } from "../../actions/whatsapp/delete-message.ts";
 import { removeParticipant } from "../../actions/whatsapp/remove-participant.ts";
 import type { GroupMessagesRepository } from "../../db/repositories/group-messages-repository.ts";
@@ -35,9 +36,15 @@ export function createZapiExecuteJob(deps: ZapiExecuteDeps) {
           job.payload,
           resolveExecutor(deps.whatsappGatewayRegistry, job.payload.providerInstanceId)
         );
+      case "whatsapp.join_group_via_invite":
+        return acceptGroupInvite(
+          job.payload,
+          resolveExecutor(deps.whatsappGatewayRegistry, job.payload.providerInstanceId)
+        );
       case "whatsapp.moderate_group_message":
+      case "whatsapp.ingest_participant_event":
         throw new NonRetryableError(
-          `zapi-worker recebeu job de moderação (${job.id}) — routing quebrado`
+          `zapi-worker recebeu job ${job.type} (${job.id}) — routing quebrado`
         );
     }
   };
