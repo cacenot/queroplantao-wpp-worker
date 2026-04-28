@@ -114,6 +114,12 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["add"])).toThrow(/Telefone obrigatório/);
   });
 
+  it("lança Error quando --reason é usado com remove", () => {
+    expect(() => parseArgs(["remove", "+5547999999999", "--reason", "spam"])).toThrow(
+      /--reason não é aceito em `remove`/
+    );
+  });
+
   it("lança Error para protocol inválido", () => {
     expect(() => parseArgs(["add", "+5547999999999", "--protocol", "ftp"])).toThrow(
       /Protocol inválido/

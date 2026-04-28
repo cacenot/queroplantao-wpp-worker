@@ -52,6 +52,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
   }
 
+  if (action === "remove" && reason !== undefined) {
+    throw new Error("--reason não é aceito em `remove`. Use apenas em `add`.");
+  }
+
   return { action, phone, protocol, reason, groupExternalId };
 }
 
@@ -129,6 +133,7 @@ export async function runPolicyCli(kind: PhonePolicyKind): Promise<void> {
   const repo = new PhonePoliciesRepository(db);
   const service = new PhonePoliciesService({ repo });
 
+  let exitCode = 0;
   try {
     const opts: PhonePolicyCliOpts = {
       phone: args.phone,
@@ -143,12 +148,12 @@ export async function runPolicyCli(kind: PhonePolicyKind): Promise<void> {
       await removePolicy(service, kind, opts);
     }
   } catch (err) {
-    if (err instanceof Error) {
-      console.error(err.message);
-      process.exit(1);
-    }
-    throw err;
+    if (!(err instanceof Error)) throw err;
+    console.error(err.message);
+    exitCode = 1;
   } finally {
     await sql.end();
   }
+
+  if (exitCode !== 0) process.exit(exitCode);
 }
