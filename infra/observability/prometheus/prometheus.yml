@@ -19,3 +19,13 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["lavinmq:15692"]
+
+  # LavinMQ detalhado — expõe métricas por fila sob `lavinmq_detailed_*`
+  # (com labels `queue` e `vhost`). O parâmetro `family` é OBRIGATÓRIO via
+  # query string; sem ele, o endpoint retorna vazio.
+  - job_name: lavinmq_detailed
+    metrics_path: /metrics/detailed
+    params:
+      family: ['queue_coarse_metrics', 'queue_consumer_count']
+    static_configs:
+      - targets: ["lavinmq:15692"]

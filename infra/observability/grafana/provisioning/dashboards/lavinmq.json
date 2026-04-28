@@ -4,22 +4,87 @@
   "tags": ["lavinmq", "amqp"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "15s",
   "time": { "from": "now-3h", "to": "now" },
   "templating": { "list": [] },
   "annotations": { "list": [] },
   "panels": [
     {
-      "id": 1,
-      "type": "timeseries",
-      "title": "Mensagens prontas por fila",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 5,
+      "type": "stat",
+      "title": "Conexões abertas",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "lavinmq_queue_messages_ready_count",
+          "expr": "lavinmq_connections{job=\"lavinmq\"}",
+          "legendFormat": "connections"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Canais",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lavinmq_channels{job=\"lavinmq\"}",
+          "legendFormat": "channels"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Consumers conectados",
+      "description": "Total de consumers no broker. Esperado em regime normal: 1 por worker process × workers configurados (zapi + moderation). Cair pra 0 indica worker desconectado.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lavinmq_consumers{job=\"lavinmq\"}",
+          "legendFormat": "consumers"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Filas declaradas",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lavinmq_queues{job=\"lavinmq\"}",
+          "legendFormat": "queues"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Mensagens prontas por fila",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lavinmq_detailed_queue_messages_ready{job=\"lavinmq_detailed\"}",
           "legendFormat": "{{queue}}"
         }
       ],
@@ -29,12 +94,12 @@
       "id": 2,
       "type": "timeseries",
       "title": "Mensagens não-ack por fila",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "lavinmq_queue_messages_unacked_count",
+          "expr": "lavinmq_detailed_queue_messages_unacked{job=\"lavinmq_detailed\"}",
           "legendFormat": "{{queue}}"
         }
       ],
@@ -44,12 +109,12 @@
       "id": 3,
       "type": "timeseries",
       "title": "Consumers por fila",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "lavinmq_queue_consumers_count",
+          "expr": "lavinmq_detailed_queue_consumers{job=\"lavinmq_detailed\"}",
           "legendFormat": "{{queue}}"
         }
       ],
@@ -58,22 +123,110 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Taxa publish vs deliver (msg/s)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "title": "Taxa global delivered / acknowledged / redelivered (msg/s)",
+      "description": "Counters globais expostos em /metrics. `redelivered` > 0 sustentado indica consumer crashando antes do ack — investigar logs do worker.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(lavinmq_queue_messages_publish_count[1m])",
-          "legendFormat": "publish — {{queue}}"
+          "expr": "rate(lavinmq_global_messages_delivered_total{job=\"lavinmq\"}[1m])",
+          "legendFormat": "delivered"
         },
         {
           "refId": "B",
-          "expr": "rate(lavinmq_queue_messages_deliver_count[1m])",
-          "legendFormat": "deliver — {{queue}}"
+          "expr": "rate(lavinmq_global_messages_acknowledged_total{job=\"lavinmq\"}[1m])",
+          "legendFormat": "acknowledged"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(lavinmq_global_messages_redelivered_total{job=\"lavinmq\"}[1m])",
+          "legendFormat": "redelivered"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Churn de conexão (open/close por segundo)",
+      "description": "Rates de abertura e fechamento de conexões. Em regime normal os dois ficam baixos e equivalentes; divergência sustentada indica reconnect loop do worker.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(lavinmq_connections_opened_total{job=\"lavinmq\"}[5m])",
+          "legendFormat": "opened/s"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(lavinmq_connections_closed_total{job=\"lavinmq\"}[5m])",
+          "legendFormat": "closed/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Memória residente vs watermark",
+      "description": "Razão `resident_memory_bytes / resident_memory_limit_bytes`. Acima de 0.8 começa a pressionar o broker — considerar subir o watermark ou investigar acúmulo em fila.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lavinmq_process_resident_memory_bytes{job=\"lavinmq\"} / lavinmq_resident_memory_limit_bytes{job=\"lavinmq\"}",
+          "legendFormat": "uso / watermark"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.6 },
+              { "color": "red", "value": 0.8 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Disco disponível",
+      "description": "Espaço livre no volume do broker. LavinMQ persiste mensagens em disco; ficar abaixo de 10GB é sinal pra agir.",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "lavinmq_disk_space_available_bytes{job=\"lavinmq\"}",
+          "legendFormat": "available"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 10737418240 },
+              { "color": "green", "value": 53687091200 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background" }
     }
   ]
 }

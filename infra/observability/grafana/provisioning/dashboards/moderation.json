@@ -4,7 +4,7 @@
   "tags": ["messaging", "moderation"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
   "templating": { "list": [] },
@@ -132,6 +132,54 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "SELECT coalesce(action, '∅') AS action, count(*) AS total FROM message_moderations WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY total DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Latência LLM p95 por modelo",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('minute', created_at) AS time, model AS metric, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95 FROM message_moderations WHERE $__timeFilter(created_at) AND status = 'analyzed' AND latency_ms IS NOT NULL GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Throughput por moderation_version",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('minute', created_at) AS time, moderation_version AS metric, count(*) AS value FROM message_moderations WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "barchart",
+      "title": "Erros por tipo (últimas 24h)",
+      "description": "Janela fixa de 24h, independente do time range do dashboard — visão consolidada de erros recentes para triagem rápida.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(error->>'name', 'unknown') AS error_name, count(*) AS total FROM message_moderations WHERE created_at >= now() - interval '24 hours' AND status = 'failed' GROUP BY 1 ORDER BY total DESC LIMIT 15"
         }
       ]
     }
