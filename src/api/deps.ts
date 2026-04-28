@@ -15,6 +15,7 @@ import { logger } from "../lib/logger.ts";
 import { createRedisConnection } from "../lib/redis.ts";
 import { GroupMessagesService } from "../services/group-messages/group-messages-service.ts";
 import { GroupParticipantsService } from "../services/group-participants/index.ts";
+import { GroupsReportService } from "../services/groups-report/index.ts";
 import { MessagingGroupsCache } from "../services/messaging-groups/messaging-groups-cache.ts";
 import { MessagingProviderInstanceService } from "../services/messaging-provider-instance/index.ts";
 import { ModerationEnforcementService } from "../services/moderation-enforcement/index.ts";
@@ -99,6 +100,8 @@ export async function buildDeps() {
     moderationReuseWindowMs: env.MODERATION_REUSE_WINDOW_MS,
   });
 
+  const groupsReportService = new GroupsReportService({ db, instanceService });
+
   return {
     sql,
     redis,
@@ -109,6 +112,7 @@ export async function buildDeps() {
     phonePoliciesService,
     groupMessagesService,
     participantsService,
+    groupsReportService,
   };
 }
 

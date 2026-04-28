@@ -154,6 +154,28 @@ export class MessagingProviderInstanceRepository {
   }
 
   async listEnabledZApiRows(): Promise<EnabledZApiRow[]> {
+    return this.queryZApiRows({ onlyEnabled: true });
+  }
+
+  // Inclui instâncias com is_enabled=false (mas archived_at IS NULL). Usado pelo
+  // bootstrap dos workers e CLIs que precisam operar em instâncias em onboarding —
+  // o filtro por is_enabled passa a ser responsabilidade dos callsites que enfileiram
+  // tráfego automatizado (delete/remove), não do registry.
+  async listAllZApiRows(): Promise<EnabledZApiRow[]> {
+    return this.queryZApiRows({ onlyEnabled: false });
+  }
+
+  private async queryZApiRows(opts: { onlyEnabled: boolean }): Promise<EnabledZApiRow[]> {
+    const conditions = [
+      eq(messagingProviderInstances.protocol, "whatsapp"),
+      eq(messagingProviderInstances.providerKind, "whatsapp_zapi"),
+      isNull(messagingProviderInstances.archivedAt),
+    ];
+
+    if (opts.onlyEnabled) {
+      conditions.push(eq(messagingProviderInstances.isEnabled, true));
+    }
+
     return this.db
       .select({
         providerId: messagingProviderInstances.id,
@@ -169,14 +191,7 @@ export class MessagingProviderInstanceRepository {
         zapiInstances,
         eq(zapiInstances.messagingProviderInstanceId, messagingProviderInstances.id)
       )
-      .where(
-        and(
-          eq(messagingProviderInstances.protocol, "whatsapp"),
-          eq(messagingProviderInstances.providerKind, "whatsapp_zapi"),
-          eq(messagingProviderInstances.isEnabled, true),
-          isNull(messagingProviderInstances.archivedAt)
-        )
-      )
+      .where(and(...conditions))
       .orderBy(asc(messagingProviderInstances.displayName), asc(zapiInstances.zapiInstanceId));
   }
 

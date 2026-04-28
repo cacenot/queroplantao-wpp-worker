@@ -10,11 +10,16 @@ import {
 } from "../../../services/provider-registry/schemas.ts";
 import type { MessagingProviderExecution } from "../../types.ts";
 import type {
+  AcceptGroupInviteResult,
   DeleteMessagePayload,
   RemoveParticipantPayload,
   WhatsAppInstance,
   WhatsAppProvider,
 } from "../types.ts";
+import {
+  type ZApiGroupMetadataLight,
+  zapiGroupMetadataLightSchema,
+} from "./group-metadata-schema.ts";
 import type { ZApiInstanceConfig } from "./types.ts";
 
 export interface ZApiRefreshSnapshot {
@@ -141,6 +146,38 @@ export class ZApiClient implements WhatsAppProvider {
     });
 
     return response.json() as Promise<{ value: boolean }>;
+  }
+
+  /**
+   * GET /group-metadata-light/{groupId}
+   * Docs: https://developer.z-api.io/group/light-group-metadata
+   *
+   * Variante "light" — não traz fotos nem descrição completa, mas inclui a lista
+   * de participantes com flags de admin/superAdmin. Usado pelo sync esporádico.
+   */
+  async fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadataLight> {
+    const response = await this.request(`group-metadata-light/${encodeURIComponent(groupId)}`, {
+      method: "GET",
+    });
+    const body = await response.json();
+    return zapiGroupMetadataLightSchema.parse(body);
+  }
+
+  /**
+   * POST /accept-group-invite
+   * Docs: https://developer.z-api.io/group/accept-group-invite
+   *
+   * Body: `{ inviteCode }` — só o código (sem o prefixo `chat.whatsapp.com/`).
+   * Resposta sob falha de negócio: `{ success: false, ... }`. O caller decide
+   * se classifica como retryable; aqui só repassamos o flag.
+   */
+  async acceptGroupInvite(inviteCode: string): Promise<AcceptGroupInviteResult> {
+    const response = await this.request("accept-group-invite", {
+      method: "POST",
+      body: JSON.stringify({ inviteCode }),
+    });
+    const raw = (await response.json()) as { success?: boolean };
+    return { success: raw?.success === true, raw };
   }
 
   private async request(path: string, options: RequestInit = {}): Promise<Response> {

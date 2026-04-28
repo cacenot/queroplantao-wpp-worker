@@ -1,5 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
+import { groupParticipants } from "../schema/group-participants.ts";
 import {
   type MessagingGroup,
   messagingGroups,
@@ -82,5 +83,66 @@ export class MessagingGroupsRepository {
       .from(messagingGroups)
       .where(eq(messagingGroups.protocol, protocol));
     return rows.map((r) => r.externalId);
+  }
+
+  /**
+   * Lista grupos onde a instância (identificada pelo `wa_id` canonical) **não** está
+   * presente como participante ativo, e que possuem `invite_url` (i.e., podemos
+   * tentar entrar via accept-group-invite). Ordenado por `created_at ASC` —
+   * primeiros pendentes primeiro, com `limit` controlando o batch.
+   */
+  async listMissingForInstance(args: {
+    protocol: Protocol;
+    instanceWaId: string;
+    limit: number;
+  }): Promise<MessagingGroup[]> {
+    const present = this.db
+      .select({ groupExternalId: groupParticipants.groupExternalId })
+      .from(groupParticipants)
+      .where(
+        and(
+          eq(groupParticipants.protocol, args.protocol),
+          eq(groupParticipants.waId, args.instanceWaId),
+          eq(groupParticipants.status, "active")
+        )
+      );
+
+    return this.db
+      .select()
+      .from(messagingGroups)
+      .where(
+        and(
+          eq(messagingGroups.protocol, args.protocol),
+          isNotNull(messagingGroups.inviteUrl),
+          sql`${messagingGroups.externalId} NOT IN ${present}`
+        )
+      )
+      .orderBy(asc(messagingGroups.createdAt))
+      .limit(args.limit);
+  }
+
+  /**
+   * Atualiza `participant_count` e `synced_at` após sync de participantes via
+   * `/group-metadata-light`. Não toca campos que vêm do admin API (name, invite_url, etc.).
+   */
+  async updateSyncSnapshot(args: {
+    externalId: string;
+    protocol: Protocol;
+    participantCount: number;
+    syncedAt: Date;
+  }): Promise<void> {
+    await this.db
+      .update(messagingGroups)
+      .set({
+        participantCount: args.participantCount,
+        syncedAt: args.syncedAt,
+        updatedAt: args.syncedAt,
+      })
+      .where(
+        and(
+          eq(messagingGroups.externalId, args.externalId),
+          eq(messagingGroups.protocol, args.protocol)
+        )
+      );
   }
 }

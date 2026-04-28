@@ -43,3 +43,19 @@ export function rawWaIdCandidate(raw: string | null): string | null {
   if (digits.length < 8 || digits.length > 15) return null;
   return digits;
 }
+
+/**
+ * Deriva o `wa_id` canonical do WhatsApp (`<digits>@s.whatsapp.net`) a partir
+ * de um phone E.164 (`+5547997490248`) ou Z-API digits (`5547997490248`).
+ * Retorna null se o input não for parseável.
+ */
+export function toWaId(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Aceita já no formato `<id>@s.whatsapp.net` (passa sem mudança).
+  if (trimmed.endsWith("@s.whatsapp.net")) return trimmed;
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return `${digits}@s.whatsapp.net`;
+}

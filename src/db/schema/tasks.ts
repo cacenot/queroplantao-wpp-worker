@@ -14,6 +14,7 @@ export const taskTypeEnum = pgEnum("task_type", [
   "whatsapp.remove_participant",
   "whatsapp.moderate_group_message",
   "whatsapp.ingest_participant_event",
+  "whatsapp.join_group_via_invite",
 ]);
 
 export const tasks = pgTable(

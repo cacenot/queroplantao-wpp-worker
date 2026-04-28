@@ -33,10 +33,14 @@ function rowToZApiConfig(row: ZApiProviderRegistryRow): ZApiInstanceConfig {
 
 export async function loadZApiProviderRows(db: Db): Promise<ZApiProviderRegistryRow[]> {
   const registry = new ProviderRegistryReadService(db);
-  const instances = await registry.listEnabledZApiInstances();
+  // Carrega todas as instâncias não-arquivadas (incluindo is_enabled=false).
+  // O filtro por habilitação vive no callsite que enfileira jobs de tráfego
+  // automatizado; o registry só resolve providerInstanceId → executor, e jobs
+  // operacionais (sync, accept-invite) precisam funcionar em instâncias disabled.
+  const instances = await registry.listAllZApiInstances();
 
   if (instances.length === 0) {
-    throw new Error("Nenhuma instância Z-API habilitada encontrada no banco");
+    throw new Error("Nenhuma instância Z-API encontrada no banco");
   }
 
   logger.info({ count: instances.length }, "Instâncias Z-API carregadas do banco");

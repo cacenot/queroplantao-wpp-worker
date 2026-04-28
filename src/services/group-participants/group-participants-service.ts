@@ -20,10 +20,13 @@ import type { TaskService } from "../task/index.ts";
 import type {
   ApplyParticipantEventInput,
   ApplyParticipantEventOutcome,
+  ApplySnapshotInput,
+  ApplySnapshotOutcome,
   IngestZapiWebhookResult,
   ParticipantIdentifier,
   RecordSeenFromMessageInput,
   RecordSeenFromMessageOutcome,
+  SnapshotParticipant,
 } from "./types.ts";
 
 type GroupParticipantsServiceOptions = {
@@ -136,6 +139,145 @@ export class GroupParticipantsService {
     }
 
     return { upserted, eventsInserted, eventsSkipped };
+  }
+
+  /**
+   * Aplica o snapshot completo de participantes de um grupo (vindo de
+   * `/group-metadata-light`). Diferente de `applyEvent`:
+   *
+   * - Define role explicitamente (member/admin/owner) — não delta
+   * - Não escreve em `group_participant_events` (snapshot não é evento auditável)
+   * - Quando `markMissingAsLeft=true`, marca participantes ativos no DB que
+   *   não aparecem no snapshot como `status='left'`, `leaveReason='unknown'`
+   *
+   * `joined_at` só é definido se ainda não tiver valor (não regredimos para
+   * `observedAt` quando o evento original já foi capturado via webhook).
+   */
+  async applySnapshot(input: ApplySnapshotInput): Promise<ApplySnapshotOutcome> {
+    const { repo, messagingGroupsRepo } = this.options;
+    const messagingGroup = await messagingGroupsRepo.findByExternalId(input.groupExternalId);
+    const messagingGroupId = messagingGroup?.id ?? null;
+
+    const seenIds = new Set<string>();
+    let upserted = 0;
+
+    for (const participant of input.participants) {
+      if (!participant.phone && !participant.senderExternalId && !participant.waId) continue;
+
+      const row = await this.upsertSnapshotParticipant({
+        participant,
+        protocol: input.protocol,
+        providerKind: input.providerKind,
+        groupExternalId: input.groupExternalId,
+        observedAt: input.observedAt,
+        messagingGroupId,
+      });
+      seenIds.add(row.id);
+      upserted++;
+    }
+
+    let markedAsLeft = 0;
+    if (input.markMissingAsLeft) {
+      const active = await repo.findActiveByGroup(input.groupExternalId, input.protocol);
+      for (const existing of active) {
+        if (seenIds.has(existing.id)) continue;
+        await repo.update(existing.id, {
+          status: "left",
+          leftAt: input.observedAt,
+          leaveReason: "unknown",
+          lastEventAt: input.observedAt,
+        });
+        markedAsLeft++;
+      }
+    }
+
+    return {
+      upserted,
+      markedAsLeft,
+      totalParticipants: input.participants.length,
+    };
+  }
+
+  private async upsertSnapshotParticipant(args: {
+    participant: SnapshotParticipant;
+    protocol: ApplySnapshotInput["protocol"];
+    providerKind: ApplySnapshotInput["providerKind"];
+    groupExternalId: string;
+    observedAt: Date;
+    messagingGroupId: string | null;
+  }) {
+    const { participant, protocol, providerKind, groupExternalId, observedAt, messagingGroupId } =
+      args;
+    const { repo } = this.options;
+
+    const identifier: ParticipantIdentifier = {
+      phone: participant.phone,
+      senderExternalId: participant.senderExternalId,
+    };
+    const existing = await repo.findByIdentifier(groupExternalId, protocol, identifier);
+
+    if (existing) {
+      const patch: Partial<NewGroupParticipant> = {
+        status: "active",
+        leftAt: null,
+        leaveReason: null,
+        role:
+          existing.role === "owner" && participant.role !== "owner" ? "owner" : participant.role,
+        lastEventAt: observedAt,
+      };
+      if (!existing.waId && participant.waId) patch.waId = participant.waId;
+      if (!existing.phone && participant.phone) {
+        const conflict = await repo.hasOtherRowWithIdentifier(
+          groupExternalId,
+          protocol,
+          existing.id,
+          { phone: participant.phone }
+        );
+        if (!conflict) patch.phone = participant.phone;
+      }
+      if (!existing.senderExternalId && participant.senderExternalId) {
+        const conflict = await repo.hasOtherRowWithIdentifier(
+          groupExternalId,
+          protocol,
+          existing.id,
+          { senderExternalId: participant.senderExternalId }
+        );
+        if (!conflict) patch.senderExternalId = participant.senderExternalId;
+      }
+      if (messagingGroupId && !existing.messagingGroupId) {
+        patch.messagingGroupId = messagingGroupId;
+      }
+      return repo.update(existing.id, patch);
+    }
+
+    const newRow: NewGroupParticipant = {
+      messagingGroupId,
+      groupExternalId,
+      protocol,
+      providerKind,
+      phone: participant.phone,
+      senderExternalId: participant.senderExternalId,
+      waId: participant.waId,
+      displayName: null,
+      role: participant.role,
+      status: "active",
+      joinedAt: null,
+      leftAt: null,
+      leaveReason: null,
+      firstSeenAt: observedAt,
+      lastEventAt: observedAt,
+    };
+    const inserted = await repo.insert(newRow);
+    if (inserted) return inserted;
+
+    // Race com outro processo (sync paralelo, webhook concorrente).
+    const raced = await repo.findByIdentifier(groupExternalId, protocol, identifier);
+    if (!raced) {
+      throw new Error(
+        `Snapshot INSERT com conflito mas findByIdentifier não achou row para group=${groupExternalId}`
+      );
+    }
+    return raced;
   }
 
   /**

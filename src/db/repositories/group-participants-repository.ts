@@ -156,6 +156,26 @@ export class GroupParticipantsRepository {
     return inserted ?? null;
   }
 
+  /**
+   * Lista participantes ativos do grupo. Usado pelo sync para diff de presença
+   * (quem está no DB mas sumiu do snapshot é candidato a `markMissingAsLeft`).
+   */
+  async findActiveByGroup(
+    groupExternalId: string,
+    protocol: Protocol
+  ): Promise<GroupParticipant[]> {
+    return this.db
+      .select()
+      .from(groupParticipants)
+      .where(
+        and(
+          eq(groupParticipants.groupExternalId, groupExternalId),
+          eq(groupParticipants.protocol, protocol),
+          eq(groupParticipants.status, "active")
+        )
+      );
+  }
+
   async update(id: string, patch: Partial<NewGroupParticipant>): Promise<GroupParticipant> {
     const [updated] = await this.db
       .update(groupParticipants)

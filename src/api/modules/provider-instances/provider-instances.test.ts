@@ -80,6 +80,10 @@ class FakeRepository {
     return [];
   }
 
+  async listAllZApiRows(): Promise<EnabledZApiRow[]> {
+    return [];
+  }
+
   async existsByZapiInstanceId(zapiInstanceId: string): Promise<boolean> {
     for (const z of this.zapi.values()) {
       if (z.zapiInstanceId === zapiInstanceId) return true;

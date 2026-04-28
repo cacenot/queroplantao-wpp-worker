@@ -13,4 +13,9 @@ export class ProviderRegistryReadService {
     const rows = await this.repo.listEnabledZApiRows();
     return parseZApiProviderRegistryRows(rows);
   }
+
+  async listAllZApiInstances(): Promise<ZApiProviderRegistryRow[]> {
+    const rows = await this.repo.listAllZApiRows();
+    return parseZApiProviderRegistryRows(rows);
+  }
 }
