@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { env } from "../config/env.ts";
 import { createDbConnection, createDrizzleDb, type Db } from "../db/client.ts";
 import { GroupParticipantsRepository } from "../db/repositories/group-participants-repository.ts";
@@ -94,6 +95,9 @@ export function isRetryable(err: unknown): boolean {
   if (err instanceof ZApiError) {
     return err.status === 0 || err.status === 429 || err.status >= 500;
   }
+  // ZodError = payload da Z-API não bate com o schema (ex.: resposta 200 sem
+  // `participants`). Retentar não muda nada — joga direto pra failures.
+  if (err instanceof ZodError) return false;
   return true;
 }
 
@@ -225,6 +229,15 @@ const ANSI = {
 function describeError(err: unknown): string {
   if (err instanceof ZApiError) {
     return err.status === 0 ? `timeout (${err.message})` : `Z-API ${err.status} (${err.message})`;
+  }
+  if (err instanceof ZodError) {
+    // Resume os primeiros 2 issues no formato `path: motivo` — o JSON cru polui demais o log.
+    const issues = err.issues.slice(0, 2).map((i) => {
+      const path = i.path.length > 0 ? i.path.join(".") : "(root)";
+      return `${path}: ${i.message}`;
+    });
+    const more = err.issues.length > 2 ? ` (+${err.issues.length - 2} issues)` : "";
+    return `payload inválido [${issues.join("; ")}]${more}`;
   }
   if (err instanceof Error) return err.message;
   return String(err);

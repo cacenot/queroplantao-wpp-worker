@@ -11,6 +11,7 @@ process.env.QP_ADMIN_API_URL ??= "https://qp-admin.example.com";
 process.env.QP_ADMIN_API_TOKEN ??= "test-admin-token";
 process.env.QP_ADMIN_API_SERVICE_TOKEN ??= "test-service-token";
 
+const { ZodError } = await import("zod");
 const { ZApiError } = await import("../gateways/whatsapp/zapi/client.ts");
 const { MAX_ATTEMPTS, BASE_DELAY_MS, fmtDuration, isRetryable, parseArgs, renderBar, withRetry } =
   await import("./sync-group-participants.ts");
@@ -110,6 +111,19 @@ describe("isRetryable", () => {
   it("erro genérico (não-ZApi) é retryable (rede/DNS)", () => {
     expect(isRetryable(new Error("ENETUNREACH"))).toBe(true);
     expect(isRetryable("string err")).toBe(true);
+  });
+
+  it("ZodError NÃO é retryable (payload inválido — retentar não muda nada)", () => {
+    const err = new ZodError([
+      {
+        code: "invalid_type",
+        expected: "array",
+        received: "undefined",
+        path: ["participants"],
+        message: "Required",
+      },
+    ]);
+    expect(isRetryable(err)).toBe(false);
   });
 });
 
