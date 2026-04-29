@@ -143,7 +143,7 @@ export class GroupParticipantsService {
 
   /**
    * Aplica o snapshot completo de participantes de um grupo (vindo de
-   * `/group-metadata-light`). Diferente de `applyEvent`:
+   * `/light-group-metadata`). Diferente de `applyEvent`:
    *
    * - Define role explicitamente (member/admin/owner) — não delta
    * - Não escreve em `group_participant_events` (snapshot não é evento auditável)

@@ -145,7 +145,7 @@ export class MessagingGroupsRepository {
 
   /**
    * Atualiza `participant_count` e `synced_at` após sync de participantes via
-   * `/group-metadata-light`. Não toca campos que vêm do admin API (name, invite_url, etc.).
+   * `/light-group-metadata`. Não toca campos que vêm do admin API (name, invite_url, etc.).
    */
   async updateSyncSnapshot(args: {
     externalId: string;

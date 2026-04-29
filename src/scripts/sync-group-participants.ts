@@ -320,7 +320,7 @@ export function createSyncUI(stdout: NodeJS.WriteStream = process.stdout): SyncU
         `  ${dim("Mark missing:     ")}${info.markMissingAsLeft ? yellow("on") : dim("off")}\n`
       );
       stdout.write(
-        `  ${dim("Endpoint:         ")}${info.light ? cyan("group-metadata-light") : cyan("group-metadata")}\n`
+        `  ${dim("Endpoint:         ")}${info.light ? cyan("light-group-metadata") : cyan("group-metadata")}\n`
       );
       stdout.write(`${dim(RULE)}\n\n`);
     },
