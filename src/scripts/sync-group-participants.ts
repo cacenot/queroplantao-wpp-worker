@@ -5,8 +5,8 @@ import { GroupParticipantsRepository } from "../db/repositories/group-participan
 import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
 import type { MessagingGroup } from "../db/schema/messaging-groups.ts";
 import { ZApiClient, ZApiError } from "../gateways/whatsapp/zapi/client.ts";
-import { normalizeGroupMetadataLight } from "../gateways/whatsapp/zapi/group-metadata-normalizer.ts";
-import type { ZApiGroupMetadataLight } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
+import { normalizeGroupMetadata } from "../gateways/whatsapp/zapi/group-metadata-normalizer.ts";
+import type { ZApiGroupMetadata } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
 import { GroupParticipantsService } from "../services/group-participants/index.ts";
 import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
 
@@ -21,6 +21,7 @@ export type Args = {
   markMissingAsLeft: boolean;
   staleHours: number;
   concurrency: number;
+  light: boolean;
 };
 
 export function parseArgs(argv: string[]): Args {
@@ -30,6 +31,7 @@ export function parseArgs(argv: string[]): Args {
   let markMissingAsLeft = false;
   let staleHours = 24;
   let concurrency = 5;
+  let light = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -51,6 +53,9 @@ export function parseArgs(argv: string[]): Args {
         break;
       case "--mark-missing-as-left":
         markMissingAsLeft = true;
+        break;
+      case "--light":
+        light = true;
         break;
       case "--stale-hours": {
         const next = argv[++i];
@@ -78,7 +83,7 @@ export function parseArgs(argv: string[]): Args {
   if (!instanceId) {
     throw new Error("--instance-id é obrigatório");
   }
-  return { instanceId, limit, groupExternalId, markMissingAsLeft, staleHours, concurrency };
+  return { instanceId, limit, groupExternalId, markMissingAsLeft, staleHours, concurrency, light };
 }
 
 // =============================================================================
@@ -90,6 +95,8 @@ export const BASE_DELAY_MS = 1_000;
 // Aborta o run inteiro se mais grupos falharem que isso. Acima disso, o problema
 // é estrutural (API down, instância desconectada, credenciais) — sem sentido continuar.
 export const MAX_FAILED_GROUPS_BEFORE_ABORT = 25;
+// Pausa entre batches para não sobrecarregar a Z-API com muitas requests paralelas.
+export const INTER_BATCH_DELAY_MS = 3_000;
 
 export function isRetryable(err: unknown): boolean {
   if (err instanceof ZApiError) {
@@ -171,6 +178,7 @@ export type HeaderInfo = {
   concurrency: number;
   markMissingAsLeft: boolean;
   groupExternalIdFilter: string | null;
+  light: boolean;
 };
 
 export type ProgressInfo = {
@@ -228,7 +236,12 @@ const ANSI = {
 
 function describeError(err: unknown): string {
   if (err instanceof ZApiError) {
-    return err.status === 0 ? `timeout (${err.message})` : `Z-API ${err.status} (${err.message})`;
+    if (err.status === 0) return `timeout (${err.message})`;
+    const bodyNote =
+      !isRetryable(err) && err.body != null
+        ? ` — ${typeof err.body === "string" ? err.body : JSON.stringify(err.body)}`
+        : "";
+    return `Z-API ${err.status} (${err.message})${bodyNote}`;
   }
   if (err instanceof ZodError) {
     // Mensagem cobre: campo (path), código do issue, e tipo esperado vs recebido
@@ -305,6 +318,9 @@ export function createSyncUI(stdout: NodeJS.WriteStream = process.stdout): SyncU
       stdout.write(`  ${dim("Concorrência:     ")}${bold(String(info.concurrency))}\n`);
       stdout.write(
         `  ${dim("Mark missing:     ")}${info.markMissingAsLeft ? yellow("on") : dim("off")}\n`
+      );
+      stdout.write(
+        `  ${dim("Endpoint:         ")}${info.light ? cyan("light-group-metadata") : cyan("group-metadata")}\n`
       );
       stdout.write(`${dim(RULE)}\n\n`);
     },
@@ -407,7 +423,7 @@ async function buildZApiClientForInstance(db: Db, instanceId: string): Promise<Z
 // =============================================================================
 
 export type SyncClient = {
-  fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadataLight>;
+  fetchGroupMetadata(groupId: string): Promise<ZApiGroupMetadata>;
 };
 
 export type RunSummary = {
@@ -447,6 +463,7 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
     concurrency: args.concurrency,
     markMissingAsLeft: args.markMissingAsLeft,
     groupExternalIdFilter: args.groupExternalId,
+    light: args.light,
   });
 
   const startedAt = Date.now();
@@ -472,6 +489,7 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
   let totalUpserted = 0;
   let totalMarkedLeft = 0;
   const failures: GroupFailure[] = [];
+  const sleep = deps.sleepMs ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
   // — Etapa: processamento em batches paralelos
   for (let i = 0; i < target.length; i += args.concurrency) {
@@ -538,6 +556,10 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
       ui.printSummary(summary);
       return summary;
     }
+
+    if (i + args.concurrency < target.length) {
+      await sleep(INTER_BATCH_DELAY_MS);
+    }
   }
 
   const summary: RunSummary = {
@@ -587,11 +609,11 @@ async function syncOneGroup(deps: {
 
   // Fetch FORA da transação — não consome conexão DB durante I/O Z-API.
   const raw = await withRetry(
-    () => client.fetchGroupMetadataLight(group.externalId),
-    `fetchGroupMetadataLight(${group.externalId})`,
+    () => client.fetchGroupMetadata(group.externalId),
+    `fetchGroupMetadata(${group.externalId})`,
     { onRetry, sleepMs, random }
   );
-  const snapshot = normalizeGroupMetadataLight(group.externalId, raw);
+  const snapshot = normalizeGroupMetadata(group.externalId, raw);
 
   // Persistência DENTRO da transação — atômica por grupo.
   return db.transaction(async (tx) => {
@@ -637,7 +659,11 @@ async function main() {
   const sql = createDbConnection({ max: 30 });
   const db = createDrizzleDb(sql);
   try {
-    const client = await buildZApiClientForInstance(db, args.instanceId);
+    const zapiClient = await buildZApiClientForInstance(db, args.instanceId);
+    const client: SyncClient = {
+      fetchGroupMetadata: (id) =>
+        args.light ? zapiClient.fetchGroupMetadataLight(id) : zapiClient.fetchGroupMetadata(id),
+    };
     const summary = await runSyncGroupParticipants({ db, client, args });
     if (summary.aborted || summary.failures.length > 0) process.exitCode = 1;
   } catch (_err) {

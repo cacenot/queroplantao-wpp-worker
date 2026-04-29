@@ -24,10 +24,7 @@ import type {
   WhatsAppInstance,
   WhatsAppProvider,
 } from "../types.ts";
-import {
-  type ZApiGroupMetadataLight,
-  zapiGroupMetadataLightSchema,
-} from "./group-metadata-schema.ts";
+import { type ZApiGroupMetadata, zapiGroupMetadataSchema } from "./group-metadata-schema.ts";
 import type { ZApiInstanceConfig } from "./types.ts";
 
 export interface ZApiRefreshSnapshot {
@@ -157,18 +154,37 @@ export class ZApiClient implements WhatsAppProvider {
   }
 
   /**
-   * GET /group-metadata-light/{groupId}
-   * Docs: https://developer.z-api.io/group/light-group-metadata
+   * GET /group-metadata/{groupId}
+   * Docs: https://developer.z-api.io/group/metadata-group
    *
-   * Variante "light" — não traz fotos nem descrição completa, mas inclui a lista
-   * de participantes com flags de admin/superAdmin. Usado pelo sync esporádico.
+   * Retorna metadados completos do grupo, incluindo a lista de participantes
+   * com flags de admin/superAdmin. Usado pelo sync esporádico.
    */
-  async fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadataLight> {
-    const response = await this.request(`group-metadata-light/${encodeURIComponent(groupId)}`, {
+  async fetchGroupMetadata(groupId: string): Promise<ZApiGroupMetadata> {
+    const response = await this.request(`group-metadata/${encodeURIComponent(groupId)}`, {
       method: "GET",
     });
     const body = await response.json();
-    return zapiGroupMetadataLightSchema.parse(body);
+    return zapiGroupMetadataSchema.parse(body);
+  }
+
+  /**
+   * GET /light-group-metadata/{groupId}
+   * Docs: https://developer.z-api.io/group/light-group-metadata
+   *
+   * Variante leve — resposta mais rápida, mas pode omitir participantes em
+   * alguns grupos. Selecionar via --light no sync.
+   *
+   * Atenção ao path: a Z-API expõe como `light-group-metadata` (não
+   * `group-metadata-light`); inverter quebra silenciosamente — alguns
+   * tenants chegam a retornar 200 com payload diferente do esperado.
+   */
+  async fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadata> {
+    const response = await this.request(`light-group-metadata/${encodeURIComponent(groupId)}`, {
+      method: "GET",
+    });
+    const body = await response.json();
+    return zapiGroupMetadataSchema.parse(body);
   }
 
   /**

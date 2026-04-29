@@ -21,7 +21,7 @@ const { MAX_FAILED_GROUPS_BEFORE_ABORT, runSyncGroupParticipants, silentUI } = a
   "./sync-group-participants.ts"
 );
 
-import type { ZApiGroupMetadataLight } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
+import type { ZApiGroupMetadata } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
 import type { Args, SyncClient } from "./sync-group-participants.ts";
 
 const INTEGRATION = process.env.INTEGRATION === "1";
@@ -36,6 +36,7 @@ function defaultArgs(overrides: Partial<Args> = {}): Args {
     markMissingAsLeft: false,
     staleHours: 24,
     concurrency: 5,
+    light: false,
     ...overrides,
   };
 }
@@ -47,10 +48,10 @@ function buildSnapshot(participants: Array<{ phone: string; isAdmin?: boolean }>
       isAdmin: p.isAdmin ?? false,
       isSuperAdmin: false,
     })),
-  } satisfies ZApiGroupMetadataLight;
+  } satisfies ZApiGroupMetadata;
 }
 
-type FakeResponse = ZApiGroupMetadataLight | Error | (() => Promise<ZApiGroupMetadataLight>);
+type FakeResponse = ZApiGroupMetadata | Error | (() => Promise<ZApiGroupMetadata>);
 
 function makeFakeClient(responses: Map<string, FakeResponse>): {
   client: SyncClient;
@@ -58,7 +59,7 @@ function makeFakeClient(responses: Map<string, FakeResponse>): {
 } {
   const calls: { groupId: string }[] = [];
   const client: SyncClient = {
-    fetchGroupMetadataLight: mock(async (groupId: string) => {
+    fetchGroupMetadata: mock(async (groupId: string) => {
       calls.push({ groupId });
       const r = responses.get(groupId);
       if (!r) throw new ZApiError(`fake: unmapped ${groupId}`, 404, null);
