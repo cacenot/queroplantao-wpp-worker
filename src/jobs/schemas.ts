@@ -30,6 +30,65 @@ const joinGroupViaInvitePayloadSchema = z.object({
   inviteCode: z.string().min(1),
 });
 
+// `externalId` é polimórfico: groupId em group, phone E.164 em contact.
+// Validação de E.164 fica no service (boundary) — aqui só garantimos não-vazio
+// para tolerar grupos cujo formato pode variar entre providers.
+const outboundTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("group"), externalId: z.string().min(1) }),
+  z.object({ kind: z.literal("contact"), externalId: z.string().min(1) }),
+]);
+
+const outboundButtonSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+});
+
+const outboundContentSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("text"),
+    message: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("image"),
+    imageUrl: z.string().url(),
+    caption: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("video"),
+    videoUrl: z.string().url(),
+    caption: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("link"),
+    message: z.string().min(1),
+    linkUrl: z.string().url(),
+    title: z.string().optional(),
+    linkDescription: z.string().optional(),
+    image: z.string().url().optional(),
+  }),
+  z.object({
+    kind: z.literal("location"),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    title: z.string().optional(),
+    address: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("buttons"),
+    message: z.string().min(1),
+    buttons: z.array(outboundButtonSchema).min(1).max(3),
+    title: z.string().optional(),
+    footer: z.string().optional(),
+  }),
+]);
+
+const sendMessagePayloadSchema = z.object({
+  providerInstanceId: z.string().uuid(),
+  outboundMessageId: z.string().uuid(),
+  target: outboundTargetSchema,
+  content: outboundContentSchema,
+});
+
 // `joined_inferred` só existe como event_type no DB para futuras
 // extensões — hoje a inferência via mensagem usa `recordSeenFromMessage` no
 // service e não gera row em `group_participant_events`. Se um dia voltar a
@@ -97,14 +156,23 @@ export const joinGroupViaInviteJobSchema = baseJobSchema.extend({
   payload: joinGroupViaInvitePayloadSchema,
 });
 
+export const sendMessageJobSchema = baseJobSchema.extend({
+  type: z.literal("whatsapp.send_message"),
+  payload: sendMessagePayloadSchema,
+});
+
 export const jobSchema = z.discriminatedUnion("type", [
   deleteMessageJobSchema,
   removeParticipantJobSchema,
   moderateGroupMessageJobSchema,
   ingestParticipantEventJobSchema,
   joinGroupViaInviteJobSchema,
+  sendMessageJobSchema,
 ]);
 
 export type JobSchema = z.infer<typeof jobSchema>;
 export type IngestParticipantEventPayload = z.infer<typeof participantEventPayloadSchema>;
 export type JoinGroupViaInvitePayload = z.infer<typeof joinGroupViaInvitePayloadSchema>;
+export type SendMessagePayload = z.infer<typeof sendMessagePayloadSchema>;
+export type OutboundTarget = z.infer<typeof outboundTargetSchema>;
+export type OutboundContent = z.infer<typeof outboundContentSchema>;

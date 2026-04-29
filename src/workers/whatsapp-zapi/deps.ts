@@ -1,4 +1,5 @@
 import { GroupMessagesRepository } from "../../db/repositories/group-messages-repository.ts";
+import { OutboundMessagesRepository } from "../../db/repositories/outbound-messages-repository.ts";
 import type { GatewayRegistry } from "../../gateways/gateway-registry.ts";
 import type { WhatsAppProvider } from "../../gateways/whatsapp/types.ts";
 import { buildSharedDeps, type SharedDeps } from "../shared/build-shared-deps.ts";
@@ -7,6 +8,7 @@ import { buildWhatsappGatewayRegistry, loadZApiProviderRows } from "../shared/za
 export type ZapiWorkerDeps = SharedDeps & {
   whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
   groupMessagesRepo: GroupMessagesRepository;
+  outboundMessagesRepo: OutboundMessagesRepository;
 };
 
 export async function buildZapiWorkerDeps(): Promise<ZapiWorkerDeps> {
@@ -15,10 +17,12 @@ export async function buildZapiWorkerDeps(): Promise<ZapiWorkerDeps> {
   const zapiRows = await loadZApiProviderRows(shared.db);
   const whatsappGatewayRegistry = await buildWhatsappGatewayRegistry(shared.redis, zapiRows);
   const groupMessagesRepo = new GroupMessagesRepository(shared.db);
+  const outboundMessagesRepo = new OutboundMessagesRepository(shared.db);
 
   return {
     ...shared,
     whatsappGatewayRegistry,
     groupMessagesRepo,
+    outboundMessagesRepo,
   };
 }

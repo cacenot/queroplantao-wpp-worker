@@ -23,6 +23,13 @@ export type JobHandlerOptions = {
   taskService: TaskService;
   publisher: Publisher;
   maxRetries: number;
+  /**
+   * Callback opcional disparado quando o job vai para a DLQ (NonRetryable ou
+   * `attempt > maxRetries`). Usado por workers que mantêm tabelas espelho do
+   * lifecycle (ex.: `outbound_messages`) para sincronizar estado terminal.
+   * Best-effort: erros são logados como warn e não abortam o fluxo de DLQ.
+   */
+  onTerminalFailure?: (job: JobSchema, err: unknown) => Promise<void>;
 };
 
 type PublishDeps = {
@@ -84,7 +91,7 @@ async function publishOrRequeue(
 }
 
 export function createJobHandler(options: JobHandlerOptions) {
-  const { executeJob, taskService, publisher, maxRetries } = options;
+  const { executeJob, taskService, publisher, maxRetries, onTerminalFailure } = options;
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Parse — valida o schema da mensagem antes de qualquer coisa.
@@ -165,6 +172,12 @@ export function createJobHandler(options: JobHandlerOptions) {
       const reason = isNonRetryable ? "non_retryable" : "max_retries_exceeded";
       const dlqName = dlqForJob(job.type);
       jobLog.error({ err, attempt: attemptNumber, reason, dlqName }, "Enviando job para DLQ");
+
+      if (onTerminalFailure) {
+        await onTerminalFailure(job, err).catch(
+          warnOnFail(jobLog, "onTerminalFailure falhou — segue para DLQ")
+        );
+      }
 
       return publishOrRequeue(publishDeps, {
         queue: dlqName,

@@ -15,6 +15,7 @@ const { NonRetryableError } = await import("../../lib/errors.ts");
 const { createZapiExecuteJob } = await import("./handler.ts");
 
 import type { GroupMessagesRepository } from "../../db/repositories/group-messages-repository.ts";
+import type { OutboundMessagesRepository } from "../../db/repositories/outbound-messages-repository.ts";
 import type { GatewayRegistry } from "../../gateways/gateway-registry.ts";
 import type { WhatsAppExecutor, WhatsAppProvider } from "../../gateways/whatsapp/types.ts";
 import type { JobSchema } from "../../jobs/schemas.ts";
@@ -33,6 +34,14 @@ function makeGroupMessagesRepo() {
   return {
     markRemoved: mock(() => Promise.resolve(1)),
   } as unknown as GroupMessagesRepository;
+}
+
+function makeOutboundRepo() {
+  return {
+    markSending: mock(() => Promise.resolve()),
+    markSent: mock(() => Promise.resolve()),
+    markFailed: mock(() => Promise.resolve()),
+  } as unknown as OutboundMessagesRepository;
 }
 
 const MODERATE_JOB: JobSchema = {
@@ -60,6 +69,7 @@ describe("zapi-worker executeJob", () => {
     const executeJob = createZapiExecuteJob({
       whatsappGatewayRegistry: makeRegistry(executor),
       groupMessagesRepo: makeGroupMessagesRepo(),
+      outboundMessagesRepo: makeOutboundRepo(),
     });
 
     await executeJob(DELETE_JOB);
@@ -71,8 +81,39 @@ describe("zapi-worker executeJob", () => {
     const executeJob = createZapiExecuteJob({
       whatsappGatewayRegistry: makeRegistry(makeExecutor()),
       groupMessagesRepo: makeGroupMessagesRepo(),
+      outboundMessagesRepo: makeOutboundRepo(),
     });
 
     await expect(executeJob(MODERATE_JOB)).rejects.toBeInstanceOf(NonRetryableError);
+  });
+
+  it("envia send_message via executor + atualiza outbound", async () => {
+    const executor: WhatsAppExecutor = {
+      execute: mock(() =>
+        Promise.resolve({ externalMessageId: "wamid.123", raw: {} })
+      ) as WhatsAppExecutor["execute"],
+    };
+    const outboundRepo = makeOutboundRepo();
+    const executeJob = createZapiExecuteJob({
+      whatsappGatewayRegistry: makeRegistry(executor),
+      groupMessagesRepo: makeGroupMessagesRepo(),
+      outboundMessagesRepo: outboundRepo,
+    });
+
+    await executeJob({
+      id: "550e8400-e29b-41d4-a716-446655440002",
+      type: "whatsapp.send_message",
+      createdAt: "2026-04-10T00:00:00.000Z",
+      payload: {
+        providerInstanceId: PROVIDER,
+        outboundMessageId: "550e8400-e29b-41d4-a716-446655440003",
+        target: { kind: "contact", externalId: "+5511999990001" },
+        content: { kind: "text", message: "olá" },
+      },
+    });
+
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(outboundRepo.markSending).toHaveBeenCalledTimes(1);
+    expect(outboundRepo.markSent).toHaveBeenCalledTimes(1);
   });
 });

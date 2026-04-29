@@ -70,6 +70,7 @@ Containers e composes: [`infra/docker/`](../infra/docker/README.md).
 
 Detalhes completos do pipeline de moderação: [`docs/moderation-ingestion.md`](./moderation-ingestion.md).
 Detalhes do sync de grupos monitorados: [`docs/messaging-groups-sync.md`](./messaging-groups-sync.md).
+Detalhes do envio de mensagens (texto, imagem, vídeo, link, localização, botões): [`docs/outbound-messages.md`](./outbound-messages.md).
 
 ## Camadas e responsabilidades
 

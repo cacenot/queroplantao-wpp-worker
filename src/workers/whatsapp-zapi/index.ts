@@ -6,7 +6,7 @@ import { logger } from "../../lib/logger.ts";
 import { closeSharedDeps } from "../shared/build-shared-deps.ts";
 import { createJobHandler } from "../shared/handler-base.ts";
 import { buildZapiWorkerDeps } from "./deps.ts";
-import { createZapiExecuteJob } from "./handler.ts";
+import { createZapiExecuteJob, createZapiTerminalFailureHandler } from "./handler.ts";
 
 async function main() {
   logger.info("Iniciando whatsapp-zapi-worker");
@@ -17,6 +17,7 @@ async function main() {
   const executeJob = createZapiExecuteJob({
     whatsappGatewayRegistry: deps.whatsappGatewayRegistry,
     groupMessagesRepo: deps.groupMessagesRepo,
+    outboundMessagesRepo: deps.outboundMessagesRepo,
   });
 
   const handleMessage = createJobHandler({
@@ -24,6 +25,7 @@ async function main() {
     taskService: deps.taskService,
     publisher: deps.publisher,
     maxRetries: deps.topologies.zapi.maxRetries,
+    onTerminalFailure: createZapiTerminalFailureHandler(deps.outboundMessagesRepo),
   });
 
   // `queueOptions: { passive: true }` porque o Consumer do rabbitmq-client sempre
