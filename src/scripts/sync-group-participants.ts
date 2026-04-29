@@ -90,6 +90,8 @@ export const BASE_DELAY_MS = 1_000;
 // Aborta o run inteiro se mais grupos falharem que isso. Acima disso, o problema
 // é estrutural (API down, instância desconectada, credenciais) — sem sentido continuar.
 export const MAX_FAILED_GROUPS_BEFORE_ABORT = 25;
+// Pausa entre batches para não sobrecarregar a Z-API com muitas requests paralelas.
+export const INTER_BATCH_DELAY_MS = 3_000;
 
 export function isRetryable(err: unknown): boolean {
   if (err instanceof ZApiError) {
@@ -472,6 +474,7 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
   let totalUpserted = 0;
   let totalMarkedLeft = 0;
   const failures: GroupFailure[] = [];
+  const sleep = deps.sleepMs ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
   // — Etapa: processamento em batches paralelos
   for (let i = 0; i < target.length; i += args.concurrency) {
@@ -537,6 +540,10 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
       );
       ui.printSummary(summary);
       return summary;
+    }
+
+    if (i + args.concurrency < target.length) {
+      await sleep(INTER_BATCH_DELAY_MS);
     }
   }
 

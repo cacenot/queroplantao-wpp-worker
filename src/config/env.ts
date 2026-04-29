@@ -43,7 +43,7 @@ const envSchema = z.object({
   // Intervalo (ms) de renovação da lease — deve ser < ZAPI_SAFETY_TTL_MS
   ZAPI_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
   // Timeout (ms) por request HTTP — timeout é retryable (cai na fila de retry)
-  ZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  ZAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
 
   // ─── WEBHOOKS ────────────────────────────────────────────────────────────────
   ZAPI_RECEIVED_WEBHOOK_ENABLED: z
