@@ -46,8 +46,9 @@ volumes:
 networks:
   observability:
     driver: bridge
-  # Network compartilhada com LavinMQ + Postgres no Coolify.
-  # Em produção: editar para `external: true` e apontar para o network do projeto Coolify
-  # que contém os serviços LavinMQ/Postgres. Em dev: criar manualmente ou ajustar.
+  # Network compartilhada com LavinMQ + Postgres no Coolify (projeto que hospeda
+  # os serviços de mensageria + banco). O Prometheus precisa dela pra resolver
+  # `lavinmq:15692`, e o Grafana pra alcançar o Postgres via datasource.
   shared:
-    driver: bridge
+    external: true
+    name: zpgtt474pig9oxk01yam8e6j
