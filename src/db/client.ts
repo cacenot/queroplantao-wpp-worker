@@ -5,8 +5,8 @@ import * as schema from "./schema/index.ts";
 
 export type Sql = ReturnType<typeof postgres>;
 
-export function createDbConnection(): Sql {
-  return postgres(env.DATABASE_URL);
+export function createDbConnection(opts: { max?: number } = {}): Sql {
+  return postgres(env.DATABASE_URL, opts);
 }
 
 export function createDrizzleDb(sql: Sql) {
