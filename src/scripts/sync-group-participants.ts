@@ -231,13 +231,16 @@ function describeError(err: unknown): string {
     return err.status === 0 ? `timeout (${err.message})` : `Z-API ${err.status} (${err.message})`;
   }
   if (err instanceof ZodError) {
-    // Resume os primeiros 2 issues no formato `path: motivo` — o JSON cru polui demais o log.
+    // Mensagem cobre: campo (path), código do issue, e tipo esperado vs recebido
+    // (quando aplicável). O JSON cru de issues polui demais o log.
     const issues = err.issues.slice(0, 2).map((i) => {
       const path = i.path.length > 0 ? i.path.join(".") : "(root)";
-      return `${path}: ${i.message}`;
+      const detail =
+        i.code === "invalid_type" ? `esperava ${i.expected}, recebeu ${i.received}` : i.message;
+      return `${path}: ${detail}`;
     });
     const more = err.issues.length > 2 ? ` (+${err.issues.length - 2} issues)` : "";
-    return `payload inválido [${issues.join("; ")}]${more}`;
+    return `resposta Z-API inválida [${issues.join("; ")}]${more}`;
   }
   if (err instanceof Error) return err.message;
   return String(err);
@@ -336,7 +339,11 @@ export function createSyncUI(stdout: NodeJS.WriteStream = process.stdout): SyncU
       writeLine(msg);
     },
     printFailure(info) {
-      const msg = `  ${red("✗")} ${cyan(info.groupExternalId)} — ${describeError(info.err)} ${dim(`(após ${MAX_ATTEMPTS} tentativas)`)}`;
+      // Erro retryable que chegou aqui esgotou MAX_ATTEMPTS; non-retryable falhou na 1ª.
+      const attemptsNote = isRetryable(info.err)
+        ? ` ${dim(`(após ${MAX_ATTEMPTS} tentativas)`)}`
+        : ` ${dim("(non-retryable, 1 tentativa)")}`;
+      const msg = `  ${red("✗")} ${cyan(info.groupExternalId)} — ${describeError(info.err)}${attemptsNote}`;
       writeLine(msg);
     },
     printAbort(message) {
