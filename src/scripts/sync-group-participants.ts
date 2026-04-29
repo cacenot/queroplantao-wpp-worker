@@ -230,7 +230,12 @@ const ANSI = {
 
 function describeError(err: unknown): string {
   if (err instanceof ZApiError) {
-    return err.status === 0 ? `timeout (${err.message})` : `Z-API ${err.status} (${err.message})`;
+    if (err.status === 0) return `timeout (${err.message})`;
+    const bodyNote =
+      !isRetryable(err) && err.body != null
+        ? ` — ${typeof err.body === "string" ? err.body : JSON.stringify(err.body)}`
+        : "";
+    return `Z-API ${err.status} (${err.message})${bodyNote}`;
   }
   if (err instanceof ZodError) {
     // Mensagem cobre: campo (path), código do issue, e tipo esperado vs recebido
