@@ -24,6 +24,7 @@ export interface WhatsAppProvider extends MessagingProvider {
   deleteMessage(payload: DeleteMessagePayload): Promise<void>;
   removeParticipant(payload: RemoveParticipantPayload): Promise<{ value: boolean }>;
   fetchGroupMetadata(groupId: string): Promise<ZApiGroupMetadata>;
+  fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadata>;
   acceptGroupInvite(inviteCode: string): Promise<AcceptGroupInviteResult>;
 }
 

@@ -161,6 +161,21 @@ export class ZApiClient implements WhatsAppProvider {
   }
 
   /**
+   * GET /group-metadata-light/{groupId}
+   * Docs: https://developer.z-api.io/group/light-group-metadata
+   *
+   * Variante leve — resposta mais rápida, mas pode omitir participantes em
+   * alguns grupos. Selecionar via --light no sync.
+   */
+  async fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadata> {
+    const response = await this.request(`group-metadata-light/${encodeURIComponent(groupId)}`, {
+      method: "GET",
+    });
+    const body = await response.json();
+    return zapiGroupMetadataSchema.parse(body);
+  }
+
+  /**
    * POST /accept-group-invite
    * Docs: https://developer.z-api.io/group/accept-group-invite
    *

@@ -36,6 +36,7 @@ function defaultArgs(overrides: Partial<Args> = {}): Args {
     markMissingAsLeft: false,
     staleHours: 24,
     concurrency: 5,
+    light: false,
     ...overrides,
   };
 }

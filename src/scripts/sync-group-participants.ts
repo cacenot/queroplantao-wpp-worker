@@ -21,6 +21,7 @@ export type Args = {
   markMissingAsLeft: boolean;
   staleHours: number;
   concurrency: number;
+  light: boolean;
 };
 
 export function parseArgs(argv: string[]): Args {
@@ -30,6 +31,7 @@ export function parseArgs(argv: string[]): Args {
   let markMissingAsLeft = false;
   let staleHours = 24;
   let concurrency = 5;
+  let light = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -51,6 +53,9 @@ export function parseArgs(argv: string[]): Args {
         break;
       case "--mark-missing-as-left":
         markMissingAsLeft = true;
+        break;
+      case "--light":
+        light = true;
         break;
       case "--stale-hours": {
         const next = argv[++i];
@@ -78,7 +83,7 @@ export function parseArgs(argv: string[]): Args {
   if (!instanceId) {
     throw new Error("--instance-id é obrigatório");
   }
-  return { instanceId, limit, groupExternalId, markMissingAsLeft, staleHours, concurrency };
+  return { instanceId, limit, groupExternalId, markMissingAsLeft, staleHours, concurrency, light };
 }
 
 // =============================================================================
@@ -173,6 +178,7 @@ export type HeaderInfo = {
   concurrency: number;
   markMissingAsLeft: boolean;
   groupExternalIdFilter: string | null;
+  light: boolean;
 };
 
 export type ProgressInfo = {
@@ -312,6 +318,9 @@ export function createSyncUI(stdout: NodeJS.WriteStream = process.stdout): SyncU
       stdout.write(`  ${dim("Concorrência:     ")}${bold(String(info.concurrency))}\n`);
       stdout.write(
         `  ${dim("Mark missing:     ")}${info.markMissingAsLeft ? yellow("on") : dim("off")}\n`
+      );
+      stdout.write(
+        `  ${dim("Endpoint:         ")}${info.light ? cyan("group-metadata-light") : cyan("group-metadata")}\n`
       );
       stdout.write(`${dim(RULE)}\n\n`);
     },
@@ -454,6 +463,7 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
     concurrency: args.concurrency,
     markMissingAsLeft: args.markMissingAsLeft,
     groupExternalIdFilter: args.groupExternalId,
+    light: args.light,
   });
 
   const startedAt = Date.now();
@@ -649,7 +659,11 @@ async function main() {
   const sql = createDbConnection({ max: 30 });
   const db = createDrizzleDb(sql);
   try {
-    const client = await buildZApiClientForInstance(db, args.instanceId);
+    const zapiClient = await buildZApiClientForInstance(db, args.instanceId);
+    const client: SyncClient = {
+      fetchGroupMetadata: (id) =>
+        args.light ? zapiClient.fetchGroupMetadataLight(id) : zapiClient.fetchGroupMetadata(id),
+    };
     const summary = await runSyncGroupParticipants({ db, client, args });
     if (summary.aborted || summary.failures.length > 0) process.exitCode = 1;
   } catch (_err) {

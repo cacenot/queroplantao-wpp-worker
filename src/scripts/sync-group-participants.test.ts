@@ -38,7 +38,13 @@ describe("parseArgs", () => {
       markMissingAsLeft: true,
       staleHours: 12,
       concurrency: 10,
+      light: false,
     });
+  });
+
+  it("ativa --light", () => {
+    const args = parseArgs(["--instance-id", "abc-123", "--light"]);
+    expect(args.light).toBe(true);
   });
 
   it("aplica defaults", () => {
@@ -50,6 +56,7 @@ describe("parseArgs", () => {
       markMissingAsLeft: false,
       staleHours: 24,
       concurrency: 5,
+      light: false,
     });
   });
 
