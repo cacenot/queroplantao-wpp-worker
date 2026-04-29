@@ -1,8 +1,5 @@
 import { toE164, toWaId } from "../../../lib/phone.ts";
-import type {
-  ZApiGroupMetadataLight,
-  ZApiGroupMetadataLightParticipant,
-} from "./group-metadata-schema.ts";
+import type { ZApiGroupMetadata, ZApiGroupMetadataParticipant } from "./group-metadata-schema.ts";
 
 export type ParticipantRole = "member" | "admin" | "owner";
 
@@ -18,13 +15,13 @@ export type NormalizedGroupSnapshot = {
   participants: SnapshotParticipant[];
 };
 
-function resolveRole(p: ZApiGroupMetadataLightParticipant): ParticipantRole {
+function resolveRole(p: ZApiGroupMetadataParticipant): ParticipantRole {
   if (p.isSuperAdmin) return "owner";
   if (p.isAdmin) return "admin";
   return "member";
 }
 
-function normalizeParticipant(p: ZApiGroupMetadataLightParticipant): SnapshotParticipant | null {
+function normalizeParticipant(p: ZApiGroupMetadataParticipant): SnapshotParticipant | null {
   const raw = p.phone.trim();
   if (!raw) return null;
 
@@ -61,9 +58,9 @@ function normalizeParticipant(p: ZApiGroupMetadataLightParticipant): SnapshotPar
   };
 }
 
-export function normalizeGroupMetadataLight(
+export function normalizeGroupMetadata(
   groupExternalId: string,
-  payload: ZApiGroupMetadataLight
+  payload: ZApiGroupMetadata
 ): NormalizedGroupSnapshot {
   const participants: SnapshotParticipant[] = [];
   for (const p of payload.participants) {

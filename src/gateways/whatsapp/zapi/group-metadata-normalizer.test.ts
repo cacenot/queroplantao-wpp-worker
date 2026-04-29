@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeGroupMetadataLight } from "./group-metadata-normalizer.ts";
-import type { ZApiGroupMetadataLight } from "./group-metadata-schema.ts";
+import { normalizeGroupMetadata } from "./group-metadata-normalizer.ts";
+import type { ZApiGroupMetadata } from "./group-metadata-schema.ts";
 
-function build(participants: ZApiGroupMetadataLight["participants"]): ZApiGroupMetadataLight {
+function build(participants: ZApiGroupMetadata["participants"]): ZApiGroupMetadata {
   return { participants };
 }
 
-describe("normalizeGroupMetadataLight", () => {
+describe("normalizeGroupMetadata", () => {
   it("normaliza phone Z-API digits para E.164 + waId", () => {
-    const result = normalizeGroupMetadataLight(
+    const result = normalizeGroupMetadata(
       "120363@g.us",
       build([{ phone: "5547997490248", isAdmin: false, isSuperAdmin: false }])
     );
@@ -22,7 +22,7 @@ describe("normalizeGroupMetadataLight", () => {
   });
 
   it("identifica admin e owner via flags", () => {
-    const result = normalizeGroupMetadataLight(
+    const result = normalizeGroupMetadata(
       "120363@g.us",
       build([
         { phone: "5547911111111", isAdmin: true, isSuperAdmin: false },
@@ -34,7 +34,7 @@ describe("normalizeGroupMetadataLight", () => {
   });
 
   it("trata LID como senderExternalId puro", () => {
-    const result = normalizeGroupMetadataLight(
+    const result = normalizeGroupMetadata(
       "120363@g.us",
       build([{ phone: "1234567890@lid", isAdmin: false, isSuperAdmin: false }])
     );
@@ -47,7 +47,7 @@ describe("normalizeGroupMetadataLight", () => {
   });
 
   it("trata phone canonical (@s.whatsapp.net) preservando waId", () => {
-    const result = normalizeGroupMetadataLight(
+    const result = normalizeGroupMetadata(
       "120363@g.us",
       build([{ phone: "5547997490248@s.whatsapp.net", isAdmin: false, isSuperAdmin: false }])
     );
@@ -60,7 +60,7 @@ describe("normalizeGroupMetadataLight", () => {
   });
 
   it("filtra entries inválidas (phone vazio ou irrecuperável)", () => {
-    const result = normalizeGroupMetadataLight(
+    const result = normalizeGroupMetadata(
       "120363@g.us",
       build([
         { phone: "5547997490248", isAdmin: false, isSuperAdmin: false },

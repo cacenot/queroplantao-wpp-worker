@@ -5,8 +5,8 @@ import { GroupParticipantsRepository } from "../db/repositories/group-participan
 import { MessagingGroupsRepository } from "../db/repositories/messaging-groups-repository.ts";
 import type { MessagingGroup } from "../db/schema/messaging-groups.ts";
 import { ZApiClient, ZApiError } from "../gateways/whatsapp/zapi/client.ts";
-import { normalizeGroupMetadataLight } from "../gateways/whatsapp/zapi/group-metadata-normalizer.ts";
-import type { ZApiGroupMetadataLight } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
+import { normalizeGroupMetadata } from "../gateways/whatsapp/zapi/group-metadata-normalizer.ts";
+import type { ZApiGroupMetadata } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
 import { GroupParticipantsService } from "../services/group-participants/index.ts";
 import { ProviderRegistryReadService } from "../services/provider-registry/provider-registry-read-service.ts";
 
@@ -407,7 +407,7 @@ async function buildZApiClientForInstance(db: Db, instanceId: string): Promise<Z
 // =============================================================================
 
 export type SyncClient = {
-  fetchGroupMetadataLight(groupId: string): Promise<ZApiGroupMetadataLight>;
+  fetchGroupMetadata(groupId: string): Promise<ZApiGroupMetadata>;
 };
 
 export type RunSummary = {
@@ -587,11 +587,11 @@ async function syncOneGroup(deps: {
 
   // Fetch FORA da transação — não consome conexão DB durante I/O Z-API.
   const raw = await withRetry(
-    () => client.fetchGroupMetadataLight(group.externalId),
-    `fetchGroupMetadataLight(${group.externalId})`,
+    () => client.fetchGroupMetadata(group.externalId),
+    `fetchGroupMetadata(${group.externalId})`,
     { onRetry, sleepMs, random }
   );
-  const snapshot = normalizeGroupMetadataLight(group.externalId, raw);
+  const snapshot = normalizeGroupMetadata(group.externalId, raw);
 
   // Persistência DENTRO da transação — atômica por grupo.
   return db.transaction(async (tx) => {
