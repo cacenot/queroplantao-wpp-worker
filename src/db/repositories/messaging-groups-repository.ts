@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { groupParticipants } from "../schema/group-participants.ts";
 import {
@@ -75,6 +75,28 @@ export class MessagingGroupsRepository {
 
   async listByProtocol(protocol: Protocol): Promise<MessagingGroup[]> {
     return this.db.select().from(messagingGroups).where(eq(messagingGroups.protocol, protocol));
+  }
+
+  /**
+   * Lista grupos do protocolo cujo `synced_at < syncedBefore` (ou nulo).
+   * Usado pelo CLI de sync para evitar re-trabalho em grupos sincronizados
+   * recentemente. Ordena por `synced_at ASC` para priorizar os mais defasados.
+   */
+  async listStaleByProtocol(args: {
+    protocol: Protocol;
+    syncedBefore: Date;
+    limit?: number;
+  }): Promise<MessagingGroup[]> {
+    const where = and(
+      eq(messagingGroups.protocol, args.protocol),
+      or(isNull(messagingGroups.syncedAt), lt(messagingGroups.syncedAt, args.syncedBefore))
+    );
+    const base = this.db
+      .select()
+      .from(messagingGroups)
+      .where(where)
+      .orderBy(asc(messagingGroups.syncedAt));
+    return args.limit !== undefined ? base.limit(args.limit) : base;
   }
 
   async listExternalIdsByProtocol(protocol: Protocol): Promise<string[]> {
