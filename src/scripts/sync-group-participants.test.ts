@@ -114,10 +114,13 @@ describe("isRetryable", () => {
 });
 
 describe("withRetry", () => {
+  // random=0.5 → jitter factor = 0.8 + 0.5*0.4 = 1.0 → delay = base (sem jitter).
+  const noJitter = () => 0.5;
+
   it("retorna o valor na 1ª tentativa sem chamar sleep", async () => {
     const fn = mock(async () => "ok");
     const sleepMs = mock(async (_ms: number) => {});
-    const got = await withRetry(fn, "label", { sleepMs });
+    const got = await withRetry(fn, "label", { sleepMs, random: noJitter });
     expect(got).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(1);
     expect(sleepMs).toHaveBeenCalledTimes(0);
@@ -133,7 +136,7 @@ describe("withRetry", () => {
     const sleepMs = mock(async (_ms: number) => {});
     const onRetry = mock(() => {});
 
-    const got = await withRetry(fn, "label", { sleepMs, onRetry });
+    const got = await withRetry(fn, "label", { sleepMs, onRetry, random: noJitter });
     expect(got).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(3);
     expect(sleepMs).toHaveBeenCalledTimes(2);
@@ -148,7 +151,7 @@ describe("withRetry", () => {
     });
     const sleepMs = mock(async (_ms: number) => {});
 
-    await expect(withRetry(fn, "label", { sleepMs })).rejects.toBe(err);
+    await expect(withRetry(fn, "label", { sleepMs, random: noJitter })).rejects.toBe(err);
     expect(fn).toHaveBeenCalledTimes(1);
     expect(sleepMs).toHaveBeenCalledTimes(0);
   });
@@ -160,7 +163,7 @@ describe("withRetry", () => {
     });
     const sleepMs = mock(async (_ms: number) => {});
 
-    await expect(withRetry(fn, "label", { sleepMs })).rejects.toBe(err);
+    await expect(withRetry(fn, "label", { sleepMs, random: noJitter })).rejects.toBe(err);
     expect(fn).toHaveBeenCalledTimes(MAX_ATTEMPTS);
     expect(sleepMs).toHaveBeenCalledTimes(MAX_ATTEMPTS - 1);
     expect(sleepMs.mock.calls.map((c) => c[0])).toEqual([
@@ -168,6 +171,32 @@ describe("withRetry", () => {
       BASE_DELAY_MS * 2,
       BASE_DELAY_MS * 4,
       BASE_DELAY_MS * 8,
+    ]);
+  });
+
+  it("aplica jitter de ±20% no delay", async () => {
+    const fn = mock(async () => {
+      throw new ZApiError("503", 503, null);
+    });
+    const sleepMs = mock(async (_ms: number) => {});
+
+    // random=0 → fator 0.8 (mínimo)
+    await expect(withRetry(fn, "label", { sleepMs, random: () => 0 })).rejects.toThrow();
+    expect(sleepMs.mock.calls.map((c) => c[0])).toEqual([
+      Math.round(BASE_DELAY_MS * 0.8),
+      Math.round(BASE_DELAY_MS * 2 * 0.8),
+      Math.round(BASE_DELAY_MS * 4 * 0.8),
+      Math.round(BASE_DELAY_MS * 8 * 0.8),
+    ]);
+
+    sleepMs.mockClear();
+    // random=1 → fator 1.2 (máximo). Limite teórico: random retorna < 1, mas testamos a borda.
+    await expect(withRetry(fn, "label", { sleepMs, random: () => 1 })).rejects.toThrow();
+    expect(sleepMs.mock.calls.map((c) => c[0])).toEqual([
+      Math.round(BASE_DELAY_MS * 1.2),
+      Math.round(BASE_DELAY_MS * 2 * 1.2),
+      Math.round(BASE_DELAY_MS * 4 * 1.2),
+      Math.round(BASE_DELAY_MS * 8 * 1.2),
     ]);
   });
 });

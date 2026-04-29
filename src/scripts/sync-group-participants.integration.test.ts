@@ -12,11 +12,14 @@ process.env.QP_ADMIN_API_TOKEN ??= "test-admin-token";
 process.env.QP_ADMIN_API_SERVICE_TOKEN ??= "test-service-token";
 
 const { createTestDb } = await import("../test-support/db.ts");
+const { hoursAgo } = await import("../test-support/time.ts");
 const { ZApiError } = await import("../gateways/whatsapp/zapi/client.ts");
 const { MessagingGroupsRepository } = await import(
   "../db/repositories/messaging-groups-repository.ts"
 );
-const { runSyncGroupParticipants, silentUI } = await import("./sync-group-participants.ts");
+const { MAX_FAILED_GROUPS_BEFORE_ABORT, runSyncGroupParticipants, silentUI } = await import(
+  "./sync-group-participants.ts"
+);
 
 import type { ZApiGroupMetadataLight } from "../gateways/whatsapp/zapi/group-metadata-schema.ts";
 import type { Args, SyncClient } from "./sync-group-participants.ts";
@@ -110,10 +113,6 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants (integration)", () => {
     `;
   }
 
-  function hoursAgo(h: number): Date {
-    return new Date(Date.now() - h * 3600_000);
-  }
-
   it("filtro 24h: pula grupos sincronizados há < 24h", async () => {
     await seedGroup({ externalId: "fresh@g.us", syncedAt: hoursAgo(1) });
     await seedGroup({ externalId: "stale-25h@g.us", syncedAt: hoursAgo(25) });
@@ -134,7 +133,7 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants (integration)", () => {
     });
 
     expect(summary.succeeded).toBe(2);
-    expect(summary.failed).toBe(0);
+    expect(summary.failures).toEqual([]);
     expect(summary.totalEligible).toBe(2);
 
     const fetched = calls.map((c) => c.groupId).sort();
@@ -144,7 +143,7 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants (integration)", () => {
       SELECT external_id, synced_at FROM messaging_groups WHERE external_id = 'fresh@g.us'
     `;
     expect(fresh?.synced_at).toBeDefined();
-    // synced_at do "fresh" não foi atualizado: continua < 5h atrás (não veio agora).
+    // synced_at do "fresh" não foi atualizado: continua < 0.5h atrás (não veio agora).
     expect(new Date(fresh?.synced_at ?? 0).getTime()).toBeLessThan(hoursAgo(0.5).getTime());
   });
 
@@ -270,12 +269,12 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants (integration)", () => {
     });
 
     expect(summary.succeeded).toBe(1);
-    expect(summary.failed).toBe(0);
+    expect(summary.failures).toEqual([]);
     expect(attempts).toBe(3);
     expect(sleepMs).toHaveBeenCalledTimes(2);
   });
 
-  it("aborta após esgotar 5 tentativas em 5xx persistente — demais grupos não processados", async () => {
+  it("grupo que esgota 5 tentativas em 5xx vai para failures, demais continuam", async () => {
     await seedGroup({ externalId: "broken@g.us", syncedAt: hoursAgo(72) });
     await seedGroup({ externalId: "later@g.us", syncedAt: hoursAgo(48) });
 
@@ -292,58 +291,98 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants (integration)", () => {
     ]);
     const { client } = makeFakeClient(responses);
 
-    await expect(
-      runSyncGroupParticipants({
-        db: testDb.db,
-        client,
-        args: defaultArgs({ concurrency: 1 }), // sequencial: garante "later" não é tocado
-        ui: silentUI,
-        sleepMs: async () => {},
-      })
-    ).rejects.toThrow();
+    const summary = await runSyncGroupParticipants({
+      db: testDb.db,
+      client,
+      args: defaultArgs({ concurrency: 1 }),
+      ui: silentUI,
+      sleepMs: async () => {},
+      random: () => 0.5,
+    });
 
+    expect(summary.aborted).toBe(false);
+    expect(summary.succeeded).toBe(1);
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.groupExternalId).toBe("broken@g.us");
     expect(brokenAttempts).toBe(5);
 
-    // synced_at do grupo broken NÃO foi atualizado (rollback / nem chegou na tx).
+    // broken não atualizou synced_at; later atualizou.
     const [broken] = await testDb.sql<Array<{ synced_at: Date }>>`
       SELECT synced_at FROM messaging_groups WHERE external_id = 'broken@g.us'
     `;
-    // permanece em ~72h atrás (com tolerância de 1h)
     expect(new Date(broken?.synced_at ?? 0).getTime()).toBeLessThan(hoursAgo(60).getTime());
 
-    // Nada de participantes inseridos.
-    const [count] = await testDb.sql<Array<{ count: string }>>`
-      SELECT count(*)::text FROM group_participants
+    const [later] = await testDb.sql<Array<{ synced_at: Date }>>`
+      SELECT synced_at FROM messaging_groups WHERE external_id = 'later@g.us'
     `;
-    expect(count?.count).toBe("0");
+    expect(new Date(later?.synced_at ?? 0).getTime()).toBeGreaterThan(hoursAgo(0.5).getTime());
   });
 
-  it("aborta imediato em 4xx (non-retryable) sem 5 tentativas", async () => {
+  it("4xx (non-retryable) vai para failures após 1 tentativa, sem abortar", async () => {
     await seedGroup({ externalId: "missing@g.us", syncedAt: hoursAgo(48) });
+    await seedGroup({ externalId: "ok@g.us", syncedAt: hoursAgo(48) });
 
-    let attempts = 0;
+    let missingAttempts = 0;
     const responses = new Map<string, FakeResponse>([
       [
         "missing@g.us",
         async () => {
-          attempts++;
+          missingAttempts++;
           throw new ZApiError("not found", 404, null);
         },
       ],
+      ["ok@g.us", buildSnapshot([{ phone: "5511999990900" }])],
     ]);
     const { client } = makeFakeClient(responses);
 
-    await expect(
-      runSyncGroupParticipants({
-        db: testDb.db,
-        client,
-        args: defaultArgs(),
-        ui: silentUI,
-        sleepMs: async () => {},
-      })
-    ).rejects.toThrow();
+    const summary = await runSyncGroupParticipants({
+      db: testDb.db,
+      client,
+      args: defaultArgs({ concurrency: 1 }),
+      ui: silentUI,
+      sleepMs: async () => {},
+    });
 
-    expect(attempts).toBe(1);
+    expect(summary.aborted).toBe(false);
+    expect(summary.succeeded).toBe(1);
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.groupExternalId).toBe("missing@g.us");
+    expect(missingAttempts).toBe(1);
+  });
+
+  it(`aborta quando mais de ${MAX_FAILED_GROUPS_BEFORE_ABORT} grupos falham — provável problema estrutural`, async () => {
+    // concurrency=1 → cada grupo processa sequencialmente e checa abort após cada um;
+    // o abort dispara exatamente no grupo 26 (failures.length passou de 25 para 26).
+    const totalGroups = MAX_FAILED_GROUPS_BEFORE_ABORT + 5;
+    for (let i = 0; i < totalGroups; i++) {
+      // padding pra ordem estável: i=0 mais defasado (asc por synced_at).
+      await seedGroup({
+        externalId: `g${String(i).padStart(2, "0")}@g.us`,
+        syncedAt: hoursAgo(72 - i),
+      });
+    }
+    const responses = new Map<string, FakeResponse>(
+      Array.from({ length: totalGroups }, (_, i) => [
+        `g${String(i).padStart(2, "0")}@g.us`,
+        new ZApiError("not found", 404, null) as FakeResponse,
+      ])
+    );
+    const { client, calls } = makeFakeClient(responses);
+
+    const summary = await runSyncGroupParticipants({
+      db: testDb.db,
+      client,
+      args: defaultArgs({ concurrency: 1 }),
+      ui: silentUI,
+      sleepMs: async () => {},
+    });
+
+    expect(summary.aborted).toBe(true);
+    expect(summary.failures.length).toBe(MAX_FAILED_GROUPS_BEFORE_ABORT + 1); // 26
+    // Após aborto, grupos restantes não foram processados.
+    expect(calls.length).toBe(MAX_FAILED_GROUPS_BEFORE_ABORT + 1);
+    expect(calls.length).toBeLessThan(totalGroups);
+    expect(summary.succeeded).toBe(0);
   });
 
   it("markMissingAsLeft=true marca participantes ausentes do snapshot como left", async () => {
@@ -493,6 +532,8 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants — atomicidade por grup
     `;
 
     // Monkey-patch: updateSyncSnapshot lança DENTRO da transação após applySnapshot ter rodado.
+    // O erro propaga direto (withRetry só envolve o fetch Z-API, não a transação)
+    // e o grupo vira uma falha registrada.
     MessagingGroupsRepository.prototype.updateSyncSnapshot = async () => {
       throw new Error("simulated DB failure mid-transaction");
     };
@@ -502,15 +543,18 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants — atomicidade por grup
     ]);
     const { client } = makeFakeClient(responses);
 
-    await expect(
-      runSyncGroupParticipants({
-        db: testDb.db,
-        client,
-        args: defaultArgs(),
-        ui: silentUI,
-        sleepMs: async () => {},
-      })
-    ).rejects.toThrow(/simulated DB failure/);
+    const summary = await runSyncGroupParticipants({
+      db: testDb.db,
+      client,
+      args: defaultArgs(),
+      ui: silentUI,
+      sleepMs: async () => {},
+      random: () => 0.5,
+    });
+
+    expect(summary.aborted).toBe(false);
+    expect(summary.failures).toHaveLength(1);
+    expect((summary.failures[0]?.err as Error).message).toMatch(/simulated DB failure/);
 
     // Rollback: nenhum participante persistido.
     const [count] = await testDb.sql<Array<{ count: string }>>`
@@ -518,8 +562,4 @@ describe.skipIf(!INTEGRATION)("runSyncGroupParticipants — atomicidade por grup
     `;
     expect(count?.count).toBe("0");
   });
-
-  function hoursAgo(h: number): Date {
-    return new Date(Date.now() - h * 3600_000);
-  }
 });

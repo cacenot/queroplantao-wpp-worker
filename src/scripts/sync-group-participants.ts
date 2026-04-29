@@ -86,6 +86,9 @@ export function parseArgs(argv: string[]): Args {
 
 export const MAX_ATTEMPTS = 5;
 export const BASE_DELAY_MS = 1_000;
+// Aborta o run inteiro se mais grupos falharem que isso. Acima disso, o problema
+// é estrutural (API down, instância desconectada, credenciais) — sem sentido continuar.
+export const MAX_FAILED_GROUPS_BEFORE_ABORT = 25;
 
 export function isRetryable(err: unknown): boolean {
   if (err instanceof ZApiError) {
@@ -107,9 +110,13 @@ export async function withRetry<T>(
   opts: {
     sleepMs?: (ms: number) => Promise<void>;
     onRetry?: (notice: RetryNotice) => void;
+    // Injetável para tornar o jitter determinístico em testes (passar `() => 0.5`
+    // recupera o delay sem jitter).
+    random?: () => number;
   } = {}
 ): Promise<T> {
   const sleep = opts.sleepMs ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const random = opts.random ?? Math.random;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -117,7 +124,10 @@ export async function withRetry<T>(
     } catch (err) {
       lastErr = err;
       if (!isRetryable(err) || attempt === MAX_ATTEMPTS) throw err;
-      const nextDelayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
+      // Backoff exponencial com jitter ±20% para dessincronizar retries paralelos
+      // e evitar thundering herd quando o upstream se recupera.
+      const base = BASE_DELAY_MS * 2 ** (attempt - 1);
+      const nextDelayMs = Math.round(base * (0.8 + random() * 0.4));
       opts.onRetry?.({ label, attempt, nextDelayMs, err });
       await sleep(nextDelayMs);
     }
@@ -168,22 +178,27 @@ export type ProgressInfo = {
   elapsedMs: number;
 };
 
+export type GroupFailure = {
+  groupExternalId: string;
+  err: unknown;
+};
+
 export type SummaryInfo = {
   succeeded: number;
-  failed: number;
   totalEligible: number;
   totalParticipants: number;
   totalUpserted: number;
   totalMarkedLeft: number;
   durationMs: number;
   aborted: boolean;
+  failures: GroupFailure[];
 };
 
 export type SyncUI = {
   printHeader(info: HeaderInfo): void;
   updateProgress(info: ProgressInfo): void;
   printRetryNotice(notice: RetryNotice): void;
-  printFailure(info: { groupExternalId: string; err: unknown }): void;
+  printFailure(info: GroupFailure): void;
   printAbort(message: string): void;
   printSummary(info: SummaryInfo): void;
 };
@@ -317,6 +332,7 @@ export function createSyncUI(stdout: NodeJS.WriteStream = process.stdout): SyncU
     printSummary(info) {
       clearLine();
       const total = info.totalEligible;
+      const failedCount = info.failures.length;
       const throughput =
         info.durationMs > 0 ? ((info.succeeded / info.durationMs) * 1000).toFixed(2) : "0.00";
       stdout.write(`\n${dim(RULE)}\n`);
@@ -326,13 +342,20 @@ export function createSyncUI(stdout: NodeJS.WriteStream = process.stdout): SyncU
         `  ${dim("Sincronizados:    ")}${green(String(info.succeeded))}${dim(` / ${total}`)}\n`
       );
       stdout.write(
-        `  ${dim("Falhas:           ")}${info.failed > 0 ? red(String(info.failed)) : dim("0")}\n`
+        `  ${dim("Falhas:           ")}${failedCount > 0 ? red(String(failedCount)) : dim("0")}\n`
       );
       stdout.write(
         `  ${dim("Participantes:    ")}${bold(String(info.totalParticipants))} ${dim(`(upserts: ${info.totalUpserted}, marcados como left: ${info.totalMarkedLeft})`)}\n`
       );
       stdout.write(`  ${dim("Tempo total:      ")}${bold(fmtDuration(info.durationMs))}\n`);
       stdout.write(`  ${dim("Throughput:       ")}${bold(`${throughput} grupos/s`)}\n`);
+      if (failedCount > 0) {
+        stdout.write(`${dim(RULE)}\n`);
+        stdout.write(`  ${bold(red(`Grupos com falha (${failedCount}):`))}\n`);
+        for (const f of info.failures) {
+          stdout.write(`  ${red("✗")} ${cyan(f.groupExternalId)} — ${describeError(f.err)}\n`);
+        }
+      }
       stdout.write(`${dim(RULE)}\n`);
     },
   };
@@ -370,12 +393,12 @@ export type SyncClient = {
 export type RunSummary = {
   totalEligible: number;
   succeeded: number;
-  failed: number;
   totalParticipants: number;
   totalUpserted: number;
   totalMarkedLeft: number;
   durationMs: number;
   aborted: boolean;
+  failures: GroupFailure[];
 };
 
 export type RunDeps = {
@@ -384,6 +407,7 @@ export type RunDeps = {
   args: Args;
   ui?: SyncUI;
   sleepMs?: (ms: number) => Promise<void>;
+  random?: () => number;
 };
 
 export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummary> {
@@ -411,23 +435,23 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
     const summary: RunSummary = {
       totalEligible: 0,
       succeeded: 0,
-      failed: 0,
       totalParticipants: 0,
       totalUpserted: 0,
       totalMarkedLeft: 0,
       durationMs: Date.now() - startedAt,
       aborted: false,
+      failures: [],
     };
-    ui.printSummary({ ...summary });
+    ui.printSummary(summary);
     return summary;
   }
 
   let succeeded = 0;
-  let failed = 0;
   let retries = 0;
   let totalParticipants = 0;
   let totalUpserted = 0;
   let totalMarkedLeft = 0;
+  const failures: GroupFailure[] = [];
 
   // — Etapa: processamento em batches paralelos
   for (let i = 0; i < target.length; i += args.concurrency) {
@@ -444,6 +468,7 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
             ui.printRetryNotice(notice);
           },
           sleepMs: deps.sleepMs,
+          random: deps.random,
         })
       )
     );
@@ -458,50 +483,52 @@ export async function runSyncGroupParticipants(deps: RunDeps): Promise<RunSummar
         totalUpserted += result.value.upserted;
         totalMarkedLeft += result.value.markedAsLeft;
       } else {
-        failed++;
-        ui.printFailure({ groupExternalId: group.externalId, err: result.reason });
+        const failure: GroupFailure = { groupExternalId: group.externalId, err: result.reason };
+        failures.push(failure);
+        ui.printFailure(failure);
       }
     }
 
     ui.updateProgress({
-      done: Math.min(i + batch.length, target.length),
+      done: i + batch.length,
       total: target.length,
       succeeded,
-      failed,
+      failed: failures.length,
       retries,
       elapsedMs: Date.now() - startedAt,
     });
 
-    // Abort no primeiro grupo que esgote retries — provável problema estrutural.
-    const rejected = results.find((r) => r.status === "rejected");
-    if (rejected && rejected.status === "rejected") {
+    // Abort estrutural: > MAX_FAILED_GROUPS_BEFORE_ABORT falhas indica problema
+    // global (API down, instância desconectada). Falhas individuais (4xx isolado,
+    // 5xx que esgotou retries em um grupo) só são reportadas no sumário.
+    if (failures.length > MAX_FAILED_GROUPS_BEFORE_ABORT) {
       const summary: RunSummary = {
         totalEligible: target.length,
         succeeded,
-        failed,
         totalParticipants,
         totalUpserted,
         totalMarkedLeft,
         durationMs: Date.now() - startedAt,
         aborted: true,
+        failures,
       };
       ui.printAbort(
-        "ao menos um grupo falhou após esgotar tentativas (provável problema estrutural: API down, credenciais inválidas, etc.)"
+        `mais de ${MAX_FAILED_GROUPS_BEFORE_ABORT} grupos falharam (${failures.length}) — provável problema estrutural: API down, instância desconectada, credenciais inválidas.`
       );
       ui.printSummary(summary);
-      throw rejected.reason;
+      return summary;
     }
   }
 
   const summary: RunSummary = {
     totalEligible: target.length,
     succeeded,
-    failed,
     totalParticipants,
     totalUpserted,
     totalMarkedLeft,
     durationMs: Date.now() - startedAt,
     aborted: false,
+    failures,
   };
   ui.printSummary(summary);
   return summary;
@@ -533,20 +560,23 @@ async function syncOneGroup(deps: {
   args: Args;
   onRetry: (notice: RetryNotice) => void;
   sleepMs?: (ms: number) => Promise<void>;
+  random?: () => number;
 }) {
-  const { group, db, client, args, onRetry, sleepMs } = deps;
+  const { group, db, client, args, onRetry, sleepMs, random } = deps;
   const observedAt = new Date();
 
   // Fetch FORA da transação — não consome conexão DB durante I/O Z-API.
   const raw = await withRetry(
     () => client.fetchGroupMetadataLight(group.externalId),
     `fetchGroupMetadataLight(${group.externalId})`,
-    { onRetry, sleepMs }
+    { onRetry, sleepMs, random }
   );
   const snapshot = normalizeGroupMetadataLight(group.externalId, raw);
 
   // Persistência DENTRO da transação — atômica por grupo.
   return db.transaction(async (tx) => {
+    // O `tx` do drizzle é estruturalmente compatível com `Db` mas TS não infere;
+    // mesmo padrão usado em messaging-provider-instance-repository.withTransaction.
     const txDb = tx as unknown as Db;
     const txParticipantsRepo = new GroupParticipantsRepository(txDb);
     const txGroupsRepo = new MessagingGroupsRepository(txDb);
@@ -582,19 +612,18 @@ async function syncOneGroup(deps: {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const sql = createDbConnection();
+  // Pool dimensionado para suportar concorrência alta (cada grupo segura 1 conexão
+  // durante a transação). Default postgres-js (10) limitaria --concurrency efetivo.
+  const sql = createDbConnection({ max: 30 });
   const db = createDrizzleDb(sql);
-  let aborted = false;
   try {
     const client = await buildZApiClientForInstance(db, args.instanceId);
     const summary = await runSyncGroupParticipants({ db, client, args });
-    if (summary.failed > 0) process.exitCode = 1;
+    if (summary.aborted || summary.failures.length > 0) process.exitCode = 1;
   } catch (_err) {
-    aborted = true;
     process.exitCode = 1;
   } finally {
     await sql.end();
-    if (aborted) process.exit(process.exitCode ?? 1);
   }
 }
 
