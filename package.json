@@ -36,7 +36,8 @@
     "remove-by-phone": "bun run src/scripts/remove-by-phone.ts",
     "spam-watcher": "bun run src/scripts/spam-watcher.ts",
     "test-moderation": "bun run src/scripts/moderation/test-moderation.ts",
-    "test-moderation-bulk": "bun run src/scripts/moderation/bulk-moderation.ts"
+    "test-moderation-bulk": "bun run src/scripts/moderation/bulk-moderation.ts",
+    "gen-bruno": "bun run src/scripts/gen-bruno.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.69",
@@ -58,6 +59,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.10",
+    "@usebruno/converters": "^0.19.0",
     "bun-types": "latest",
     "drizzle-kit": "^0.31.10",
     "pino-pretty": "^13.1.3",

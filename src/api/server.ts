@@ -39,7 +39,15 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
             { name: "tasks", description: "Publicação de jobs no AMQP" },
             { name: "providers", description: "Provider instances (CRUD)" },
             { name: "webhooks", description: "Webhooks de providers externos" },
+            { name: "groups", description: "Relatórios de grupos por instância" },
+            { name: "moderation", description: "Listas de blacklist e bypass por telefone" },
           ],
+          components: {
+            securitySchemes: {
+              ApiKeyAuth: { type: "apiKey", in: "header", name: "x-api-key" },
+            },
+          },
+          security: [{ ApiKeyAuth: [] }],
         },
       })
     )

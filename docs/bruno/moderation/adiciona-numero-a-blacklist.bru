@@ -1,0 +1,23 @@
+meta {
+  name: Adiciona número à blacklist
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/admin/moderation/blacklist/
+  body: json
+  auth: inherit
+}
+
+body:json {
+{
+  "protocol": "",
+  "phone": "",
+  "senderExternalId": "",
+  "groupExternalId": "",
+  "reason": "",
+  "notes": "",
+  "expiresAt": ""
+}
+}

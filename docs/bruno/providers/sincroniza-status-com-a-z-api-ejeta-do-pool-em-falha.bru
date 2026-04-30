@@ -1,0 +1,15 @@
+meta {
+  name: Sincroniza status com a Z-API (ejeta do pool em falha)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/providers/instances/:id/refresh
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}

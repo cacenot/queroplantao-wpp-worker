@@ -1,0 +1,15 @@
+meta {
+  name: Retorna uma entrada da blacklist pelo id
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/admin/moderation/blacklist/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}

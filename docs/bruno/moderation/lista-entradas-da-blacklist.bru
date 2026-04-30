@@ -1,0 +1,21 @@
+meta {
+  name: Lista entradas da blacklist
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/admin/moderation/blacklist/
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~protocol: 
+  ~phone: 
+  ~senderExternalId: 
+  ~groupExternalId: 
+  ~source: 
+  limit: 20
+  offset: 0
+}
