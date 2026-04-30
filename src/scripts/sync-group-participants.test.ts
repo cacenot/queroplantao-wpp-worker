@@ -125,7 +125,7 @@ describe("isRetryable", () => {
       {
         code: "invalid_type",
         expected: "array",
-        received: "undefined",
+        input: undefined,
         path: ["participants"],
         message: "Required",
       },

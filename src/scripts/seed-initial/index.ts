@@ -62,7 +62,7 @@ function parseSeedData(raw: string | undefined): SeedData | null {
 
   const result = seedSchema.safeParse(parsed);
   if (!result.success) {
-    const formatted = result.error.errors
+    const formatted = result.error.issues
       .map((e) => `  [${e.path.join(".")}] ${e.message}`)
       .join("\n");
     throw new Error(`SEED_DATA_JSON inválido:\n${formatted}`);

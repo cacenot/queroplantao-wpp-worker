@@ -111,7 +111,7 @@ function parseEnv() {
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
-    const formatted = result.error.errors
+    const formatted = result.error.issues
       .map((e) => `  [${e.path.join(".")}] ${e.message}`)
       .join("\n");
     throw new Error(`Configuração de ambiente inválida:\n${formatted}`);
