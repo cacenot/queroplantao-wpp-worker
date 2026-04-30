@@ -3,6 +3,7 @@ import { Elysia } from "elysia";
 import { env } from "../config/env.ts";
 import type { HealthReport } from "../lib/health.ts";
 import { logger } from "../lib/logger.ts";
+import { ensureDefaultMetrics, register } from "../metrics/registry.ts";
 import { composeApp, type WebhookConfig } from "./app.ts";
 import type { ApiDeps } from "./deps.ts";
 
@@ -21,6 +22,8 @@ export interface HttpServerOptions {
 export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
   const { deps, webhookConfig, getHealth, port: portOverride } = options;
 
+  ensureDefaultMetrics();
+
   const app = new Elysia()
     .use(
       swagger({
@@ -36,7 +39,15 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
             { name: "tasks", description: "Publicação de jobs no AMQP" },
             { name: "providers", description: "Provider instances (CRUD)" },
             { name: "webhooks", description: "Webhooks de providers externos" },
+            { name: "groups", description: "Relatórios de grupos por instância" },
+            { name: "moderation", description: "Listas de blacklist e bypass por telefone" },
           ],
+          components: {
+            securitySchemes: {
+              ApiKeyAuth: { type: "apiKey", in: "header", name: "x-api-key" },
+            },
+          },
+          security: [{ ApiKeyAuth: [] }],
         },
       })
     )
@@ -44,6 +55,10 @@ export function startHttpServer(options: HttpServerOptions): HttpServerHandle {
       const health = getHealth();
       if (health.status !== "ok") set.status = 503;
       return health;
+    })
+    .get("/metrics", async ({ set }) => {
+      set.headers["content-type"] = register.contentType;
+      return await register.metrics();
     })
     .use(composeApp(deps, webhookConfig));
 

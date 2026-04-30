@@ -1,0 +1,21 @@
+meta {
+  name: Lista entradas de bypass
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/admin/moderation/bypass/
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~protocol: 
+  ~phone: 
+  ~senderExternalId: 
+  ~groupExternalId: 
+  ~source: 
+  limit: 20
+  offset: 0
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Remove uma entrada da blacklist
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/admin/moderation/blacklist/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}

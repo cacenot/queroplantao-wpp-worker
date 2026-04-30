@@ -8,6 +8,7 @@ import { type JobSchema, jobSchema } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
 import { warnOnFail } from "../../lib/log-helpers.ts";
 import { logger } from "../../lib/logger.ts";
+import { recordJobEnd, recordJobStart } from "../../metrics/job-metrics.ts";
 import type { TaskService } from "../../services/task/index.ts";
 
 type JobLogger = Logger;
@@ -121,6 +122,9 @@ export function createJobHandler(options: JobHandlerOptions) {
 
     const attemptNumber = claim.attempt;
     jobLog.info({ attempt: attemptNumber }, "Job recebido — executando");
+    recordJobStart(job.type);
+    const startedAt = performance.now();
+    const elapsed = () => (performance.now() - startedAt) / 1000;
 
     try {
       // 3. Execute — delega para o executeJob do worker (switch restrito por tipo).
@@ -128,6 +132,7 @@ export function createJobHandler(options: JobHandlerOptions) {
 
       // 4. Success — atualiza status e sinaliza para o consumer loop.
       jobLog.info("Job concluído com sucesso");
+      recordJobEnd(job.type, "success", elapsed());
       await taskService
         .markSucceeded(job.id)
         .catch(warnOnFail(jobLog, "Falha ao marcar task succeeded — job já executado"));
@@ -151,6 +156,7 @@ export function createJobHandler(options: JobHandlerOptions) {
           { err, attempt: attemptNumber, retryQueue },
           "Erro ao executar job — agendando retry"
         );
+        recordJobEnd(job.type, "retry", elapsed());
         return publishOrRequeue(publishDeps, {
           queue: retryQueue,
           priority,
@@ -166,9 +172,13 @@ export function createJobHandler(options: JobHandlerOptions) {
       }
 
       // NonRetryableError ou retries esgotados → DLQ
-      const reason = isNonRetryable ? "non_retryable" : "max_retries_exceeded";
+      const dlqReason = isNonRetryable ? "non_retryable" : "max_retries";
       const dlqName = dlqForJob(job.type);
-      jobLog.error({ err, attempt: attemptNumber, reason, dlqName }, "Enviando job para DLQ");
+      jobLog.error(
+        { err, attempt: attemptNumber, reason: dlqReason, dlqName },
+        "Enviando job para DLQ"
+      );
+      recordJobEnd(job.type, "dlq", elapsed(), dlqReason);
 
       if (onTerminalFailure) {
         await onTerminalFailure(job, err).catch(

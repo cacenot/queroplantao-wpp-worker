@@ -1,0 +1,11 @@
+meta {
+  name: Recebe webhook on-message-received da Z-API
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/webhooks/zapi/on-message-received
+  body: none
+  auth: inherit
+}

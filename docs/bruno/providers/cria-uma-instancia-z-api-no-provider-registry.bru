@@ -1,0 +1,22 @@
+meta {
+  name: Cria uma instância Z-API no provider registry
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/providers/instances/
+  body: json
+  auth: inherit
+}
+
+body:json {
+{
+  "displayName": "",
+  "zapiInstanceId": "",
+  "instanceToken": "",
+  "customClientToken": "",
+  "executionStrategy": "",
+  "redisKey": ""
+}
+}

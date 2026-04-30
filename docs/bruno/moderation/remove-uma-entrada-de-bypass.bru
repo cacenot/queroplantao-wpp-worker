@@ -1,0 +1,15 @@
+meta {
+  name: Remove uma entrada de bypass
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/admin/moderation/bypass/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}

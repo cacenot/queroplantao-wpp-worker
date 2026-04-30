@@ -1,0 +1,15 @@
+meta {
+  name: Habilita uma provider instance (idempotente)
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/providers/instances/:id/enable
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}
