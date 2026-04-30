@@ -1,11 +1,13 @@
 services:
   prometheus:
-    image: prom/prometheus:v2.55.1
+    build:
+      context: .
+      dockerfile: Dockerfile.prometheus
     restart: unless-stopped
     # Prometheus não suporta env vars no prometheus.yml. Renderizamos o template
-    # com `sed` no startup, lendo os hostnames internos do Coolify das envs abaixo.
-    # O `cat` no fim apenas garante exit non-zero se algum placeholder não foi
-    # substituído (defesa contra env vazia que escapou do `:?`).
+    # (embarcado na imagem via Dockerfile.prometheus) com `sed` no startup,
+    # lendo os hostnames internos do Coolify das envs abaixo. O guard `grep`
+    # garante exit non-zero se algum placeholder não for substituído.
     entrypoint:
       - /bin/sh
       - -c
@@ -31,14 +33,17 @@ services:
       ZAPI_WORKER_HOST: ${ZAPI_WORKER_HOST:?ZAPI_WORKER_HOST é obrigatória (DNS interno do wpp-zapi-worker no Coolify)}
       MODERATION_WORKER_HOST: ${MODERATION_WORKER_HOST:?MODERATION_WORKER_HOST é obrigatória (DNS interno do moderation-worker no Coolify)}
     volumes:
-      - ./prometheus/prometheus.yml.tpl:/etc/prometheus/prometheus.yml.tpl:ro
       - prometheus_data:/prometheus
     networks:
       - observability
       - shared
 
   grafana:
-    image: grafana/grafana:11.3.0
+    # Imagem custom com provisioning embarcado. Ver Dockerfile.grafana
+    # pra justificativa (bind mount stale do Coolify).
+    build:
+      context: .
+      dockerfile: Dockerfile.grafana
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:?GF_SECURITY_ADMIN_USER é obrigatória}
@@ -54,7 +59,6 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus

@@ -1,0 +1,8 @@
+# Imagem custom do Grafana com provisioning embarcado.
+# Justificativa: Coolify usa bind mount de um diretório persistente do host
+# (`/data/coolify/applications/<id>/grafana/provisioning`) que NÃO é atualizado
+# de forma confiável quando arquivos novos aparecem no repo entre deploys.
+# Ao copiar os arquivos pra dentro da imagem, cada redeploy do Coolify reconstrói
+# a imagem com o estado atual do git — sem dependência do bind mount.
+FROM grafana/grafana:11.3.0
+COPY ./grafana/provisioning /etc/grafana/provisioning

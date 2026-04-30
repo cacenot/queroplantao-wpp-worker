@@ -14,7 +14,9 @@ Erros do worker vão pro **Sentry** (SaaS, plano free).
 ```
 infra/observability/
 ├── docker-compose.yml             # prometheus + grafana + cadvisor + node-exporter
-├── prometheus/prometheus.yml.tpl  # template; entrypoint do prometheus faz sed das envs
+├── Dockerfile.grafana             # image custom: grafana base + COPY do provisioning
+├── Dockerfile.prometheus          # image custom: prometheus base + COPY do template
+├── prometheus/prometheus.yml.tpl  # template; entrypoint faz sed das envs no startup
 └── grafana/provisioning/
     ├── datasources/
     │   ├── prometheus.yml
@@ -47,6 +49,8 @@ Definir no painel do Coolify (no recurso "Docker Compose" da observabilidade):
 | `MODERATION_WORKER_HOST` | sim | DNS interno do `moderation-worker` no Coolify |
 
 Os 4 últimos são consumidos pelo entrypoint do container `prometheus`, que faz `sed` em `prometheus.yml.tpl` e gera o `prometheus.yml` final no startup. Se um placeholder ficar sem substituir, o container falha logo no boot com mensagem clara.
+
+> **Por que imagens custom (Dockerfile.grafana e Dockerfile.prometheus) em vez de bind mount?** Coolify faz bind mount de um diretório persistente do host (`/data/coolify/applications/<id>/...`) que não é atualizado de forma confiável quando arquivos novos aparecem entre deploys. Embarcando os arquivos nas imagens, cada redeploy faz `docker compose build` e os arquivos refletem o estado atual do git.
 
 > **Como descobrir o DNS interno**: no painel do Coolify, abrir o recurso, aba "Service Settings" / "Network" — o nome geralmente é `<service>-<projectId>`. Alternativa: depois que a obs subir, `docker exec observability-prometheus-1 wget -qO- <hostname>:<porta>/metrics` resolve via DNS interno se o nome estiver certo.
 

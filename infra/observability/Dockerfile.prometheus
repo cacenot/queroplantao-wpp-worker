@@ -1,0 +1,6 @@
+# Imagem custom do Prometheus com o template embarcado.
+# Mesma justificativa do Dockerfile.grafana: evitar bind mount stale do Coolify.
+# O entrypoint do compose continua fazendo `sed` em /etc/prometheus/prometheus.yml.tpl
+# substituindo placeholders pelos hostnames do Coolify e renderizando em /tmp/prometheus.yml.
+FROM prom/prometheus:v2.55.1
+COPY ./prometheus/prometheus.yml.tpl /etc/prometheus/prometheus.yml.tpl
