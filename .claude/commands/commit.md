@@ -63,7 +63,23 @@ Se o biome modificar algum arquivo, isso é esperado — siga em frente.
 - Qualquer falha (typecheck, unit, integração) → **PARE**, reporte o erro, não comite.
 - Tente corrigir se for trivial e claramente relacionado ao seu trabalho. Para outros casos, pergunte ao usuário antes de mexer.
 
-## 5. Commit
+## 5. Regenerar coleção Bruno (condicional)
+
+Se o commit incluir qualquer arquivo sob `src/api/` (rotas, modules, server.ts), regenere a coleção Bruno:
+
+```bash
+bun run gen-bruno
+```
+
+Em seguida, stage os arquivos gerados junto com o commit:
+
+```bash
+git add docs/bruno/
+```
+
+> Pule este passo se nenhum arquivo de `src/api/` estiver no commit.
+
+## 6. Commit
 
 ### Stage
 
@@ -96,11 +112,11 @@ EOF
 )"
 ```
 
-## 6. Verificação
+## 7. Verificação
 
 Rode `git status` depois do commit pra confirmar que ficou limpo (ou que sobraram apenas arquivos fora do escopo, como esperado).
 
-## 7. Não fazer
+## 8. Não fazer
 
 - ❌ Não rodar `git push` (a menos que o usuário peça).
 - ❌ Não usar `--amend`, `--no-verify`, `--force`.
