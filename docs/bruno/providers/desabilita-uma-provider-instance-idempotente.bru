@@ -1,0 +1,15 @@
+meta {
+  name: Desabilita uma provider instance (idempotente)
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/providers/instances/:id/disable
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}

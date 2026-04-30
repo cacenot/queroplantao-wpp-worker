@@ -1,0 +1,19 @@
+meta {
+  name: Lista provider instances com paginação e filtros
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/providers/instances/
+  body: none
+  auth: inherit
+}
+
+params:query {
+  limit: 20
+  offset: 0
+  ~protocol: 
+  ~providerKind: 
+  ~isEnabled: 
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Conta grupos onde a instância está, é admin e quantos faltam entrar
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/instances/:id/groups/report
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}

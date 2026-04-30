@@ -1,0 +1,25 @@
+meta {
+  name: Atualiza campos da instância (dispara refresh; rollback em falha)
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/providers/instances/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 
+}
+
+body:json {
+{
+  "displayName": "",
+  "executionStrategy": "",
+  "redisKey": "",
+  "instanceToken": "",
+  "customClientToken": ""
+}
+}
