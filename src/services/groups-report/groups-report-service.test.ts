@@ -41,7 +41,8 @@ function makeInstanceService(view: InstanceView | null) {
 
 // Builder de Db: stub do query builder do drizzle-orm. Cada `select(...)` retorna
 // um chainable que termina resolvendo na lista de rows pré-configurada na ordem
-// de chamada. Um array de "respostas" por chamada permite dois selects distintos.
+// de chamada. `where()` devolve uma Promise real estendida com `orderBy()` —
+// cobre callsites que awaitam direto e os que encadeiam ordenação.
 function makeDb(rowsPerSelect: unknown[][]): Db {
   let callIndex = 0;
   return {
@@ -49,7 +50,11 @@ function makeDb(rowsPerSelect: unknown[][]): Db {
       from: () => ({
         where: () => {
           const rows = rowsPerSelect[callIndex++] ?? [];
-          return Promise.resolve(rows);
+          const promise = Promise.resolve(rows) as Promise<unknown[]> & {
+            orderBy: () => Promise<unknown[]>;
+          };
+          promise.orderBy = () => Promise.resolve(rows);
+          return promise;
         },
       }),
     }),

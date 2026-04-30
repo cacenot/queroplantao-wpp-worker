@@ -96,7 +96,8 @@ export class GroupsReportService {
           isNotNull(messagingGroups.inviteUrl),
           sql`NOT ${presentSubquery}`
         )
-      );
+      )
+      .orderBy(messagingGroups.createdAt, messagingGroups.id);
 
     const lastSyncedAtRaw = groupTotals?.lastSyncedAt ?? null;
     return {
