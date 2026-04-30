@@ -3,6 +3,7 @@ import { env } from "../../config/env.ts";
 import { registerCrashHandlers } from "../../lib/crash-handlers.ts";
 import { computeHealth } from "../../lib/health.ts";
 import { logger } from "../../lib/logger.ts";
+import { ensureDefaultMetrics, register } from "../../metrics/registry.ts";
 import { closeSharedDeps } from "../shared/build-shared-deps.ts";
 import { createJobHandler } from "../shared/handler-base.ts";
 import { buildModerationWorkerDeps } from "./deps.ts";
@@ -11,6 +12,7 @@ import { createModerationExecuteJob } from "./handler.ts";
 async function main() {
   logger.info("Iniciando moderation-worker");
   registerCrashHandlers(logger);
+  ensureDefaultMetrics();
 
   const deps = await buildModerationWorkerDeps();
 
@@ -54,11 +56,16 @@ async function main() {
 
   const healthServer = Bun.serve({
     port: env.WORKER_MODERATION_HEALTH_PORT,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/health" && req.method === "GET") {
         const health = computeHealth(deps);
         return Response.json(health, { status: health.status === "ok" ? 200 : 503 });
+      }
+      if (url.pathname === "/metrics" && req.method === "GET") {
+        return new Response(await register.metrics(), {
+          headers: { "content-type": register.contentType },
+        });
       }
       return new Response("Not found", { status: 404 });
     },

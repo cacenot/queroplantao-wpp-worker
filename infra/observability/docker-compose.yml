@@ -2,13 +2,36 @@ services:
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=30d"
-      - "--web.enable-lifecycle"
+    # Prometheus não suporta env vars no prometheus.yml. Renderizamos o template
+    # com `sed` no startup, lendo os hostnames internos do Coolify das envs abaixo.
+    # O `cat` no fim apenas garante exit non-zero se algum placeholder não foi
+    # substituído (defesa contra env vazia que escapou do `:?`).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        sed -e "s|__LAVINMQ_HOST__|$$LAVINMQ_HOST|g" \
+            -e "s|__API_HOST__|$$API_HOST|g" \
+            -e "s|__ZAPI_WORKER_HOST__|$$ZAPI_WORKER_HOST|g" \
+            -e "s|__MODERATION_WORKER_HOST__|$$MODERATION_WORKER_HOST|g" \
+            /etc/prometheus/prometheus.yml.tpl > /tmp/prometheus.yml
+        if grep -E "__[A-Z][A-Z_]*_HOST__" /tmp/prometheus.yml; then
+          echo "ERRO: placeholder não substituído em /tmp/prometheus.yml" >&2
+          exit 1
+        fi
+        exec /bin/prometheus \
+          --config.file=/tmp/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --storage.tsdb.retention.time=30d \
+          --web.enable-lifecycle
+    environment:
+      LAVINMQ_HOST: ${LAVINMQ_HOST:?LAVINMQ_HOST é obrigatória (DNS interno do LavinMQ no Coolify)}
+      API_HOST: ${API_HOST:?API_HOST é obrigatória (DNS interno do messaging-api no Coolify)}
+      ZAPI_WORKER_HOST: ${ZAPI_WORKER_HOST:?ZAPI_WORKER_HOST é obrigatória (DNS interno do wpp-zapi-worker no Coolify)}
+      MODERATION_WORKER_HOST: ${MODERATION_WORKER_HOST:?MODERATION_WORKER_HOST é obrigatória (DNS interno do moderation-worker no Coolify)}
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/prometheus.yml.tpl:/etc/prometheus/prometheus.yml.tpl:ro
       - prometheus_data:/prometheus
     networks:
       - observability
@@ -38,6 +61,44 @@ services:
     networks:
       - observability
       - shared
+
+  # cAdvisor — métricas por container (CPU, memória, rede, FS) via Docker socket
+  # + cgroups do host. Privileged é necessário pra ler /sys/fs/cgroup.
+  # Doc: https://github.com/google/cadvisor
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - observability
+
+  # node-exporter — métricas do host (CPU, memória, disco, load avg, rede do host).
+  # `pid: host` permite enxergar processos do host. Filesystem mount-points filtra
+  # pseudo-FS pra evitar duplicatas e ruído.
+  # Doc: https://github.com/prometheus/node_exporter
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    pid: host
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|var/lib/docker/.+)($$|/)"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - observability
 
 volumes:
   prometheus_data:

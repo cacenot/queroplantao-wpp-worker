@@ -1,0 +1,645 @@
+{
+  "uid": "services-overview",
+  "title": "Services — Resources & App",
+  "tags": ["infra", "containers", "host", "app"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Container",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(container_cpu_usage_seconds_total{name!=\"\"}, name)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "app_service",
+        "label": "App service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(app_process_cpu_user_seconds_total, service)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "job_type",
+        "label": "Job type",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(jobs_processed_total, type)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "mountpoint",
+        "label": "Mountpoint",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}, mountpoint)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "multi": false,
+        "includeAll": false,
+        "current": { "selected": false, "text": "/", "value": "/" },
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Host Overview",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "CPU host",
+      "gridPos": { "h": 5, "w": 5, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "cpu"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Memória host",
+      "gridPos": { "h": 5, "w": 5, "x": 5, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+          "legendFormat": "mem"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Disco $mountpoint",
+      "gridPos": { "h": 5, "w": 5, "x": 10, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - (node_filesystem_avail_bytes{mountpoint=\"$mountpoint\"} / node_filesystem_size_bytes{mountpoint=\"$mountpoint\"})) * 100",
+          "legendFormat": "disk"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "Load 1m",
+      "gridPos": { "h": 5, "w": 4, "x": 15, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "node_load1", "legendFormat": "load1" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2 }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "Uptime do host",
+      "gridPos": { "h": 5, "w": 5, "x": 19, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_time_seconds - node_boot_time_seconds",
+          "legendFormat": "uptime"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Containers — Snapshot",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 201,
+      "type": "table",
+      "title": "Containers — uso atual",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "CPU",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"$service\", name!=\"\"}[2m])) * 100",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        },
+        {
+          "refId": "MEM",
+          "expr": "sum by (name) (container_memory_working_set_bytes{name=~\"$service\", name!=\"\"})",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        },
+        {
+          "refId": "MEM_PCT",
+          "expr": "sum by (name) (container_memory_working_set_bytes{name=~\"$service\", name!=\"\"}) / sum by (name) (container_spec_memory_limit_bytes{name=~\"$service\", name!=\"\"} > 0) * 100",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        },
+        {
+          "refId": "RX",
+          "expr": "sum by (name) (rate(container_network_receive_bytes_total{name=~\"$service\", name!=\"\"}[2m]))",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        },
+        {
+          "refId": "TX",
+          "expr": "sum by (name) (rate(container_network_transmit_bytes_total{name=~\"$service\", name!=\"\"}[2m]))",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "job": true, "instance": true },
+            "renameByName": {
+              "name": "Container",
+              "Value #CPU": "CPU %",
+              "Value #MEM": "Mem RSS",
+              "Value #MEM_PCT": "Mem % limite",
+              "Value #RX": "RX/s",
+              "Value #TX": "TX/s"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CPU %" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "decimals", "value": 2 }] },
+          { "matcher": { "id": "byName", "options": "Mem RSS" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          { "matcher": { "id": "byName", "options": "Mem % limite" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "decimals", "value": 1 }] },
+          { "matcher": { "id": "byName", "options": "RX/s" }, "properties": [{ "id": "unit", "value": "Bps" }] },
+          { "matcher": { "id": "byName", "options": "TX/s" }, "properties": [{ "id": "unit", "value": "Bps" }] }
+        ]
+      }
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "Containers — CPU & Memória",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 301,
+      "type": "timeseries",
+      "title": "CPU por container",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"$service\", name!=\"\"}[2m])) * 100",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 302,
+      "type": "timeseries",
+      "title": "Memória por container (working set)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_memory_working_set_bytes{name=~\"$service\", name!=\"\"}",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "fillOpacity": 20, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 400,
+      "type": "row",
+      "title": "Containers — Rede & Disco I/O",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 401,
+      "type": "timeseries",
+      "title": "Rede por container",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "RX",
+          "expr": "sum by (name) (rate(container_network_receive_bytes_total{name=~\"$service\", name!=\"\"}[2m]))",
+          "legendFormat": "RX {{name}}"
+        },
+        {
+          "refId": "TX",
+          "expr": "-sum by (name) (rate(container_network_transmit_bytes_total{name=~\"$service\", name!=\"\"}[2m]))",
+          "legendFormat": "TX {{name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 402,
+      "type": "timeseries",
+      "title": "Disco I/O por container",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "READ",
+          "expr": "sum by (name) (rate(container_fs_reads_bytes_total{name=~\"$service\", name!=\"\"}[2m]))",
+          "legendFormat": "read {{name}}"
+        },
+        {
+          "refId": "WRITE",
+          "expr": "-sum by (name) (rate(container_fs_writes_bytes_total{name=~\"$service\", name!=\"\"}[2m]))",
+          "legendFormat": "write {{name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 500,
+      "type": "row",
+      "title": "Host — Filesystem, Disco, Rede",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 501,
+      "type": "bargauge",
+      "title": "Filesystem do host por mountpoint",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}) * 100",
+          "legendFormat": "{{mountpoint}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true }
+    },
+    {
+      "id": 502,
+      "type": "timeseries",
+      "title": "Disco do host (read/write)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "READ",
+          "expr": "rate(node_disk_read_bytes_total[2m])",
+          "legendFormat": "read {{device}}"
+        },
+        {
+          "refId": "WRITE",
+          "expr": "-rate(node_disk_written_bytes_total[2m])",
+          "legendFormat": "write {{device}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 503,
+      "type": "timeseries",
+      "title": "Rede do host (RX/TX)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "RX",
+          "expr": "rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[2m])",
+          "legendFormat": "RX {{device}}"
+        },
+        {
+          "refId": "TX",
+          "expr": "-rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[2m])",
+          "legendFormat": "TX {{device}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 600,
+      "type": "row",
+      "title": "App Runtime — Node.js",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 601,
+      "type": "timeseries",
+      "title": "Heap (used vs total)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "USED",
+          "expr": "app_nodejs_heap_size_used_bytes{service=~\"$app_service\"}",
+          "legendFormat": "used {{service}}"
+        },
+        {
+          "refId": "TOTAL",
+          "expr": "app_nodejs_heap_size_total_bytes{service=~\"$app_service\"}",
+          "legendFormat": "total {{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 602,
+      "type": "timeseries",
+      "title": "Event loop lag (p99)",
+      "description": "Latência observada do event loop. Valores acima de ~100ms indicam saturação do processo (CPU bound, awaits longos sincronizando, GC pesado).",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (le, service) (rate(app_nodejs_eventloop_lag_seconds_bucket[5m])))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 603,
+      "type": "timeseries",
+      "title": "GC — tempo gasto",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service, kind) (rate(app_nodejs_gc_duration_seconds_sum{service=~\"$app_service\"}[5m]))",
+          "legendFormat": "{{service}} ({{kind}})"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 604,
+      "type": "timeseries",
+      "title": "CPU do processo (Node)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(app_process_cpu_seconds_total{service=~\"$app_service\"}[2m]) * 100",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 605,
+      "type": "timeseries",
+      "title": "RSS do processo (Node)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "app_process_resident_memory_bytes{service=~\"$app_service\"}",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 700,
+      "type": "row",
+      "title": "Jobs — Worker",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 701,
+      "type": "timeseries",
+      "title": "Throughput por status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(jobs_processed_total{type=~\"$job_type\"}[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "fillOpacity": 25, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "success" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "retry" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }] },
+          { "matcher": { "id": "byName", "options": "dlq" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "lastNotNull"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 702,
+      "type": "timeseries",
+      "title": "Duração por tipo (p50 / p95 / p99)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "P50",
+          "expr": "histogram_quantile(0.50, sum by (le, type) (rate(job_duration_seconds_bucket{type=~\"$job_type\"}[5m])))",
+          "legendFormat": "p50 {{type}}"
+        },
+        {
+          "refId": "P95",
+          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(job_duration_seconds_bucket{type=~\"$job_type\"}[5m])))",
+          "legendFormat": "p95 {{type}}"
+        },
+        {
+          "refId": "P99",
+          "expr": "histogram_quantile(0.99, sum by (le, type) (rate(job_duration_seconds_bucket{type=~\"$job_type\"}[5m])))",
+          "legendFormat": "p99 {{type}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 703,
+      "type": "timeseries",
+      "title": "Jobs in-flight",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 69 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type) (jobs_in_flight{type=~\"$job_type\"})",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 20 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 704,
+      "type": "timeseries",
+      "title": "DLQ por motivo",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 69 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type, reason) (rate(jobs_dlq_total{type=~\"$job_type\"}[15m]))",
+          "legendFormat": "{{type}} ({{reason}})"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    }
+  ]
+}
