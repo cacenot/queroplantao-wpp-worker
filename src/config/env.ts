@@ -5,7 +5,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, { message: "DATABASE_URL é obrigatória" }),
 
   // ─── AMQP ────────────────────────────────────────────────────────────────────
-  AMQP_URL: z.string().url({ message: "AMQP_URL deve ser uma URL válida" }),
+  AMQP_URL: z.url({ error: "AMQP_URL deve ser uma URL válida" }),
   // Fila do whatsapp-zapi worker (delete_message + remove_participant). Usa x-max-priority=10
   // pra garantir delete (priority 10) antes de remove (priority 7).
   AMQP_ZAPI_QUEUE: z.string().min(1).default("messaging.zapi"),
@@ -21,7 +21,7 @@ const envSchema = z.object({
   AMQP_RETRY_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
 
   // ─── REDIS ───────────────────────────────────────────────────────────────────
-  REDIS_URL: z.string().url({ message: "REDIS_URL deve ser uma URL válida" }),
+  REDIS_URL: z.url({ error: "REDIS_URL deve ser uma URL válida" }),
 
   // ─── HTTP / WORKER ───────────────────────────────────────────────────────────
   // 0 = porta aleatória, útil em testes
@@ -33,7 +33,7 @@ const envSchema = z.object({
   WORKER_MODERATION_HEALTH_PORT: z.coerce.number().int().nonnegative().default(3012),
 
   // ─── Z-API ───────────────────────────────────────────────────────────────────
-  ZAPI_BASE_URL: z.string().url({ message: "ZAPI_BASE_URL deve ser uma URL válida" }),
+  ZAPI_BASE_URL: z.url({ error: "ZAPI_BASE_URL deve ser uma URL válida" }),
   ZAPI_CLIENT_TOKEN: z.string().min(1, { message: "ZAPI_CLIENT_TOKEN é obrigatória" }),
   // Delay aleatório (ms) entre requisições — cria jitter para evitar rajadas
   ZAPI_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(2500),
@@ -55,7 +55,7 @@ const envSchema = z.object({
     .min(1, { message: "ZAPI_RECEIVED_WEBHOOK_SECRET é obrigatória" }),
 
   // ─── QP ADMIN API ────────────────────────────────────────────────────────────
-  QP_ADMIN_API_URL: z.string().url({ message: "QP_ADMIN_API_URL deve ser uma URL válida" }),
+  QP_ADMIN_API_URL: z.url({ error: "QP_ADMIN_API_URL deve ser uma URL válida" }),
   QP_ADMIN_API_TOKEN: z.string().min(1, { message: "QP_ADMIN_API_TOKEN é obrigatória" }),
   QP_ADMIN_API_SERVICE_TOKEN: z
     .string()
@@ -100,7 +100,7 @@ const envSchema = z.object({
 
   // ─── SENTRY ──────────────────────────────────────────────────────────────────
   // Sem DSN, init vira no-op (dev local não envia)
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: z.url().optional(),
   SENTRY_ENVIRONMENT: z.string().min(1).default("production"),
   SENTRY_RELEASE: z.string().optional(),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),

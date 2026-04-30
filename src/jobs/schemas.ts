@@ -50,21 +50,21 @@ const outboundContentSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("image"),
-    imageUrl: z.string().url(),
+    imageUrl: z.url(),
     caption: z.string().optional(),
   }),
   z.object({
     kind: z.literal("video"),
-    videoUrl: z.string().url(),
+    videoUrl: z.url(),
     caption: z.string().optional(),
   }),
   z.object({
     kind: z.literal("link"),
     message: z.string().min(1),
-    linkUrl: z.string().url(),
+    linkUrl: z.url(),
     title: z.string().optional(),
     linkDescription: z.string().optional(),
-    image: z.string().url().optional(),
+    image: z.url().optional(),
   }),
   z.object({
     kind: z.literal("location"),
@@ -118,7 +118,7 @@ const participantEventPayloadSchema = z.object({
     targets: z.array(participantIdentifierSchema).min(1),
     actor: participantIdentifierSchema.nullable(),
     displayName: z.string().nullable(),
-    occurredAt: z.string().datetime(),
+    occurredAt: z.iso.datetime(),
     sourceWebhookMessageId: z.string(),
     sourceNotification: z.string(),
     rawPayload: z.unknown(),
@@ -127,7 +127,7 @@ const participantEventPayloadSchema = z.object({
 
 const baseJobSchema = z.object({
   id: z.guid(),
-  createdAt: z.string().datetime(),
+  createdAt: z.iso.datetime(),
   attempt: z.number().int().nonnegative().optional(),
 });
 
