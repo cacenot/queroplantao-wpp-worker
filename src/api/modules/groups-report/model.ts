@@ -9,6 +9,13 @@ export const groupsReportModel = new Elysia({ name: "groupsReportModel" }).model
     groupsWithInstance: t.Integer(),
     groupsAsAdmin: t.Integer(),
     missingFromGroups: t.Integer(),
+    missingGroups: t.Array(
+      t.Object({
+        id: t.String({ format: "uuid" }),
+        name: t.String(),
+        inviteUrl: t.String(),
+      })
+    ),
     lastSyncedAt: t.Union([t.String(), t.Null()]),
   }),
 });

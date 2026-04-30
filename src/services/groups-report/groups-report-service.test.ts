@@ -95,6 +95,8 @@ describe("GroupsReportService.buildReport", () => {
         ],
         // segundo select: groupsAsAdmin
         [{ groupsAsAdmin: 5 }],
+        // terceiro select: lista detalhada de missingGroups
+        [],
       ]),
       instanceService: makeInstanceService(view),
     });
@@ -131,6 +133,7 @@ describe("GroupsReportService.buildReport", () => {
           },
         ],
         [{ groupsAsAdmin: 0 }],
+        [],
       ]),
       instanceService: makeInstanceService(view),
     });
@@ -148,7 +151,7 @@ describe("GroupsReportService.buildReport", () => {
   it("propaga 0 quando query retorna linha vazia", async () => {
     const view = makeInstanceView({ currentPhoneNumber: "5511999990001" } as never);
     const svc = new GroupsReportService({
-      db: makeDb([[], []]),
+      db: makeDb([[], [], []]),
       instanceService: makeInstanceService(view),
     });
 
@@ -160,7 +163,48 @@ describe("GroupsReportService.buildReport", () => {
       expect(out.report.groupsWithInstance).toBe(0);
       expect(out.report.groupsAsAdmin).toBe(0);
       expect(out.report.missingFromGroups).toBe(0);
+      expect(out.report.missingGroups).toEqual([]);
       expect(out.report.lastSyncedAt).toBeNull();
+    }
+  });
+
+  it("missingGroups inclui {id,name,inviteUrl} dos grupos faltantes", async () => {
+    const view = makeInstanceView({ currentPhoneNumber: "5511999990001" } as never);
+    const missing = [
+      {
+        id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        name: "Grupo SP",
+        inviteUrl: "https://chat.whatsapp.com/AAA",
+      },
+      {
+        id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        name: "Grupo RJ",
+        inviteUrl: "https://chat.whatsapp.com/BBB",
+      },
+    ];
+    const svc = new GroupsReportService({
+      db: makeDb([
+        [
+          {
+            totalGroups: 10,
+            groupsWithInviteUrl: 5,
+            groupsWithInstance: 3,
+            missingFromGroups: 2,
+            lastSyncedAt: null,
+          },
+        ],
+        [{ groupsAsAdmin: 0 }],
+        missing,
+      ]),
+      instanceService: makeInstanceService(view),
+    });
+
+    const out = await svc.buildReport(PROVIDER_INSTANCE);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.report.missingGroups).toEqual(missing);
+      // invariante: lista detalhada e contador vêm do mesmo predicado
+      expect(out.report.missingGroups.length).toBe(out.report.missingFromGroups);
     }
   });
 });
