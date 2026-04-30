@@ -6,6 +6,7 @@ import { z } from "zod";
 import { dlqForJob, priorityForJob, retryQueueForJob } from "../../jobs/routing.ts";
 import { type JobSchema, jobSchema } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
+import { warnOnFail } from "../../lib/log-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 import { recordJobEnd, recordJobStart } from "../../metrics/job-metrics.ts";
 import type { TaskService } from "../../services/task/index.ts";
@@ -24,6 +25,13 @@ export type JobHandlerOptions = {
   taskService: TaskService;
   publisher: Publisher;
   maxRetries: number;
+  /**
+   * Callback opcional disparado quando o job vai para a DLQ (NonRetryable ou
+   * `attempt > maxRetries`). Usado por workers que mantêm tabelas espelho do
+   * lifecycle (ex.: `outbound_messages`) para sincronizar estado terminal.
+   * Best-effort: erros são logados como warn e não abortam o fluxo de DLQ.
+   */
+  onTerminalFailure?: (job: JobSchema, err: unknown) => Promise<void>;
 };
 
 type PublishDeps = {
@@ -31,10 +39,6 @@ type PublishDeps = {
   taskService: TaskService;
   jobLog: JobLogger;
 };
-
-function warnOnFail(log: JobLogger, message: string) {
-  return (err: unknown) => log.warn({ err }, message);
-}
 
 // Retorna { attempt } quando o job deve executar (claim no DB ou fallback sem
 // persistência se o DB cair); null quando a task já está terminal/inexistente
@@ -85,7 +89,7 @@ async function publishOrRequeue(
 }
 
 export function createJobHandler(options: JobHandlerOptions) {
-  const { executeJob, taskService, publisher, maxRetries } = options;
+  const { executeJob, taskService, publisher, maxRetries, onTerminalFailure } = options;
 
   return async function handleMessage(msg: AsyncMessage): Promise<ConsumerStatus | undefined> {
     // 1. Parse — valida o schema da mensagem antes de qualquer coisa.
@@ -175,6 +179,12 @@ export function createJobHandler(options: JobHandlerOptions) {
         "Enviando job para DLQ"
       );
       recordJobEnd(job.type, "dlq", elapsed(), dlqReason);
+
+      if (onTerminalFailure) {
+        await onTerminalFailure(job, err).catch(
+          warnOnFail(jobLog, "onTerminalFailure falhou — segue para DLQ")
+        );
+      }
 
       return publishOrRequeue(publishDeps, {
         queue: dlqName,

@@ -40,7 +40,8 @@ export async function createTestDb(): Promise<{
     );
     CREATE TYPE "${schemaName}"."task_type" AS ENUM (
       'whatsapp.delete_message', 'whatsapp.remove_participant', 'whatsapp.moderate_group_message',
-      'whatsapp.ingest_participant_event'
+      'whatsapp.ingest_participant_event', 'whatsapp.join_group_via_invite',
+      'whatsapp.send_message'
     );
     CREATE TYPE "${schemaName}"."messaging_protocol" AS ENUM ('whatsapp', 'telegram');
     CREATE TYPE "${schemaName}"."phone_policy_kind" AS ENUM ('blacklist', 'bypass');
@@ -277,6 +278,47 @@ export async function createTestDb(): Promise<{
     );
     CREATE UNIQUE INDEX "zapi_instances_zapi_instance_id_idx_${schemaName}"
       ON "${schemaName}"."zapi_instances" ("zapi_instance_id");
+
+    CREATE TYPE "${schemaName}"."outbound_message_status" AS ENUM (
+      'pending', 'queued', 'sending', 'sent', 'failed', 'dropped'
+    );
+    CREATE TYPE "${schemaName}"."outbound_message_target_kind" AS ENUM ('group', 'contact');
+    CREATE TYPE "${schemaName}"."outbound_message_content_kind" AS ENUM (
+      'text', 'image', 'video', 'link', 'location', 'buttons'
+    );
+
+    CREATE TABLE "${schemaName}"."outbound_messages" (
+      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "protocol" "${schemaName}"."messaging_protocol" NOT NULL,
+      "provider_kind" "${schemaName}"."messaging_provider_kind" NOT NULL,
+      "provider_instance_id" uuid REFERENCES "${schemaName}"."messaging_provider_instances"("id") ON DELETE SET NULL,
+      "target_kind" "${schemaName}"."outbound_message_target_kind" NOT NULL,
+      "target_external_id" text NOT NULL,
+      "messaging_group_id" uuid REFERENCES "${schemaName}"."messaging_groups"("id") ON DELETE SET NULL,
+      "content_kind" "${schemaName}"."outbound_message_content_kind" NOT NULL,
+      "content" jsonb NOT NULL,
+      "external_message_id" text,
+      "status" "${schemaName}"."outbound_message_status" NOT NULL DEFAULT 'pending',
+      "attempt" integer NOT NULL DEFAULT 0,
+      "error" jsonb,
+      "task_id" uuid REFERENCES "${schemaName}"."tasks"("id") ON DELETE SET NULL,
+      "idempotency_key" text,
+      "batch_id" uuid,
+      "scheduled_for" timestamp with time zone,
+      "requested_by" text,
+      "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "updated_at" timestamp with time zone NOT NULL DEFAULT now(),
+      "queued_at" timestamp with time zone,
+      "sent_at" timestamp with time zone,
+      "failed_at" timestamp with time zone
+    );
+    CREATE UNIQUE INDEX "outbound_messages_idempotency_key_idx_${schemaName}"
+      ON "${schemaName}"."outbound_messages" ("idempotency_key")
+      WHERE "idempotency_key" IS NOT NULL;
+    CREATE INDEX "outbound_messages_status_created_at_idx_${schemaName}"
+      ON "${schemaName}"."outbound_messages" ("status", "created_at");
+    CREATE INDEX "outbound_messages_target_idx_${schemaName}"
+      ON "${schemaName}"."outbound_messages" ("target_external_id", "created_at");
   `);
 
   const db = drizzle(sql, { schema });

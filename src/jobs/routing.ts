@@ -20,6 +20,7 @@ export function queueForJob(type: JobType): string {
     case "whatsapp.delete_message":
     case "whatsapp.remove_participant":
     case "whatsapp.join_group_via_invite":
+    case "whatsapp.send_message":
       return env.AMQP_ZAPI_QUEUE;
     case "whatsapp.moderate_group_message":
     case "whatsapp.ingest_participant_event":
@@ -40,6 +41,10 @@ export function priorityForJob(type: JobType): number | undefined {
       return 10;
     case "whatsapp.remove_participant":
       return 7;
+    // send_message fica entre remove e join: enforcement (delete/remove) corre
+    // primeiro; envios em massa não devem bloquear ações de moderação.
+    case "whatsapp.send_message":
+      return 5;
     // join é operação manual/onboarding — fica abaixo de delete/remove pra não
     // disputar slot da fila quando há enforcement em andamento.
     case "whatsapp.join_group_via_invite":

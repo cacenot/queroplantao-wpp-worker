@@ -50,6 +50,13 @@
       "when": 1777388404574,
       "tag": "0006_free_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777481116680,
+      "tag": "0007_quiet_vance_astro",
+      "breakpoints": true
     }
   ]
 }
