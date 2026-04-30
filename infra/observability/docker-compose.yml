@@ -68,16 +68,22 @@ services:
 
   # cAdvisor — métricas por container (CPU, memória, rede, FS) via Docker socket
   # + cgroups do host. Privileged é necessário pra ler /sys/fs/cgroup.
+  # `--docker_only=true` filtra só containers Docker (descarta cgroups do host).
+  # `--store_container_labels=true` popula o label `name` (que o dashboard usa).
+  # `/var/run:rw` (não ro) — cAdvisor abre `docker.sock` em rw mesmo só pra ler.
   # Doc: https://github.com/google/cadvisor
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     restart: unless-stopped
     privileged: true
+    command:
+      - "--docker_only=true"
+      - "--store_container_labels=true"
     devices:
       - /dev/kmsg
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      - /var/run:/var/run:rw
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
