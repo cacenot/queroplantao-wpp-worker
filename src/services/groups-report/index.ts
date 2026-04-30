@@ -1,2 +1,2 @@
-export type { GroupsReport, GroupsReportError } from "./groups-report-service.ts";
+export type { GroupsReport, GroupsReportError, MissingGroup } from "./groups-report-service.ts";
 export { GroupsReportService } from "./groups-report-service.ts";

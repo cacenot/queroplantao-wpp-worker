@@ -1,9 +1,11 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../../db/client.ts";
 import { groupParticipants } from "../../db/schema/group-participants.ts";
 import { messagingGroups } from "../../db/schema/messaging-groups.ts";
 import { toWaId } from "../../lib/phone.ts";
 import type { MessagingProviderInstanceService } from "../messaging-provider-instance/index.ts";
+
+export type MissingGroup = { id: string; name: string; inviteUrl: string };
 
 export type GroupsReport = {
   providerInstanceId: string;
@@ -13,6 +15,7 @@ export type GroupsReport = {
   groupsWithInstance: number;
   groupsAsAdmin: number;
   missingFromGroups: number;
+  missingGroups: MissingGroup[];
   lastSyncedAt: string | null;
 };
 
@@ -77,6 +80,25 @@ export class GroupsReportService {
         )
       );
 
+    // Lista detalhada dos grupos contados em `missingFromGroups`. Mesmo predicado
+    // (NOT EXISTS) garante invariante missingGroups.length === missingFromGroups.
+    // Cast em invite_url evita string|null vazar pro tipo — WHERE garante non-null.
+    const missingGroups = await db
+      .select({
+        id: messagingGroups.id,
+        name: messagingGroups.name,
+        inviteUrl: sql<string>`${messagingGroups.inviteUrl}`,
+      })
+      .from(messagingGroups)
+      .where(
+        and(
+          eq(messagingGroups.protocol, "whatsapp"),
+          isNotNull(messagingGroups.inviteUrl),
+          sql`NOT ${presentSubquery}`
+        )
+      )
+      .orderBy(messagingGroups.createdAt, messagingGroups.id);
+
     const lastSyncedAtRaw = groupTotals?.lastSyncedAt ?? null;
     return {
       ok: true,
@@ -88,6 +110,7 @@ export class GroupsReportService {
         groupsWithInstance: groupTotals?.groupsWithInstance ?? 0,
         groupsAsAdmin: presence?.groupsAsAdmin ?? 0,
         missingFromGroups: groupTotals?.missingFromGroups ?? 0,
+        missingGroups,
         lastSyncedAt:
           lastSyncedAtRaw instanceof Date ? lastSyncedAtRaw.toISOString() : lastSyncedAtRaw,
       },
