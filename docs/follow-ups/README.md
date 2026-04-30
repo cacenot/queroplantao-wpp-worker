@@ -13,3 +13,4 @@ Critério pra entrar aqui: **conhecimento que se perde se ficar só num comentá
 - [setTaskId-transactional-fix.md](./setTaskId-transactional-fix.md) — refactor pra vincular `outbound_messages.task_id` em transação atômica; loosen-fix atual é mitigação.
 - [provider-instance-archived-removal.md](./provider-instance-archived-removal.md) — drop de `archived_at`; estado redundante com `is_enabled`.
 - [zapi-disconnect-webhook.md](./zapi-disconnect-webhook.md) — handler de webhook de disconnect da Z-API; hoje só refresh manual desabilita instância morta.
+- [evolution-go-provider.md](./evolution-go-provider.md) — adicionar provider `whatsapp_evolution_go`; exige refactor prévio de erros provider-específicos pra `ProviderHttpError` agnóstico.
