@@ -3,7 +3,7 @@ import { z } from "zod";
 export const executionStrategySchema = z.enum(["leased", "passthrough"]);
 
 export const zapiProviderRegistryRowSchema = z.object({
-  providerId: z.string().uuid(),
+  providerId: z.guid(),
   displayName: z.string().min(1),
   executionStrategy: executionStrategySchema,
   redisKey: z.string().min(1),
@@ -57,7 +57,7 @@ export function parseZApiProviderRegistryRows(rows: unknown): ZApiProviderRegist
   const result = zapiProviderRegistryRowsSchema.safeParse(rows);
 
   if (!result.success) {
-    const formatted = result.error.errors
+    const formatted = result.error.issues
       .map((error) => `  [${error.path.join(".")}] ${error.message}`)
       .join("\n");
 

@@ -4,14 +4,14 @@ import { z } from "zod";
 // carrega o phone do contato. É o campo "destino" exigido pela Z-API DELETE
 // /messages — não segue a convenção E.164 do domínio.
 const deleteMessagePayloadSchema = z.object({
-  providerInstanceId: z.string().uuid(),
+  providerInstanceId: z.guid(),
   messageId: z.string().min(1),
   phone: z.string().min(1),
   owner: z.boolean(),
 });
 
 const removeParticipantPayloadSchema = z.object({
-  providerInstanceId: z.string().uuid(),
+  providerInstanceId: z.guid(),
   groupId: z.string().min(1),
   phones: z
     .array(z.string().regex(/^\+\d{8,15}$/, "phone deve estar em E.164 (+DDIDDDNúmero)"))
@@ -19,12 +19,12 @@ const removeParticipantPayloadSchema = z.object({
 });
 
 const moderateGroupMessagePayloadSchema = z.object({
-  moderationId: z.string().uuid(),
+  moderationId: z.guid(),
 });
 
 const joinGroupViaInvitePayloadSchema = z.object({
-  providerInstanceId: z.string().uuid(),
-  messagingGroupId: z.string().uuid(),
+  providerInstanceId: z.guid(),
+  messagingGroupId: z.guid(),
   // Código puro do convite (último segmento do link `chat.whatsapp.com/<code>`).
   // A Z-API retorna `success: false` quando inválido/expirado — sem retry.
   inviteCode: z.string().min(1),
@@ -50,21 +50,21 @@ const outboundContentSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("image"),
-    imageUrl: z.string().url(),
+    imageUrl: z.url(),
     caption: z.string().optional(),
   }),
   z.object({
     kind: z.literal("video"),
-    videoUrl: z.string().url(),
+    videoUrl: z.url(),
     caption: z.string().optional(),
   }),
   z.object({
     kind: z.literal("link"),
     message: z.string().min(1),
-    linkUrl: z.string().url(),
+    linkUrl: z.url(),
     title: z.string().optional(),
     linkDescription: z.string().optional(),
-    image: z.string().url().optional(),
+    image: z.url().optional(),
   }),
   z.object({
     kind: z.literal("location"),
@@ -83,8 +83,8 @@ const outboundContentSchema = z.discriminatedUnion("kind", [
 ]);
 
 const sendMessagePayloadSchema = z.object({
-  providerInstanceId: z.string().uuid(),
-  outboundMessageId: z.string().uuid(),
+  providerInstanceId: z.guid(),
+  outboundMessageId: z.guid(),
   target: outboundTargetSchema,
   content: outboundContentSchema,
 });
@@ -109,7 +109,7 @@ const participantIdentifierSchema = z.object({
 });
 
 const participantEventPayloadSchema = z.object({
-  providerInstanceId: z.string().uuid().nullable(),
+  providerInstanceId: z.guid().nullable(),
   event: z.object({
     providerKind: z.literal("whatsapp_zapi"),
     protocol: z.literal("whatsapp"),
@@ -118,7 +118,7 @@ const participantEventPayloadSchema = z.object({
     targets: z.array(participantIdentifierSchema).min(1),
     actor: participantIdentifierSchema.nullable(),
     displayName: z.string().nullable(),
-    occurredAt: z.string().datetime(),
+    occurredAt: z.iso.datetime(),
     sourceWebhookMessageId: z.string(),
     sourceNotification: z.string(),
     rawPayload: z.unknown(),
@@ -126,8 +126,8 @@ const participantEventPayloadSchema = z.object({
 });
 
 const baseJobSchema = z.object({
-  id: z.string().uuid(),
-  createdAt: z.string().datetime(),
+  id: z.guid(),
+  createdAt: z.iso.datetime(),
   attempt: z.number().int().nonnegative().optional(),
 });
 

@@ -249,7 +249,7 @@ function describeError(err: unknown): string {
     const issues = err.issues.slice(0, 2).map((i) => {
       const path = i.path.length > 0 ? i.path.join(".") : "(root)";
       const detail =
-        i.code === "invalid_type" ? `esperava ${i.expected}, recebeu ${i.received}` : i.message;
+        i.code === "invalid_type" ? `esperava ${i.expected}, recebeu ${typeof i.input}` : i.message;
       return `${path}: ${detail}`;
     });
     const more = err.issues.length > 2 ? ` (+${err.issues.length - 2} issues)` : "";
