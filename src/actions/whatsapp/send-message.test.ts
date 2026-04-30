@@ -80,8 +80,9 @@ describe("sendMessage — happy paths", () => {
 });
 
 describe("sendMessage — classificação de erro", () => {
-  it("4xx Z-API → NonRetryableError + markFailed", async () => {
-    const error = new ZApiError("Bad Request", 400, { code: "INVALID" });
+  it("4xx Z-API → NonRetryableError + markFailed com status e body preservados", async () => {
+    const zapiBody = { error: "Phone number doesn't exist." };
+    const error = new ZApiError("Bad Request", 400, zapiBody);
     const executor = makeExecutorRejecting(error);
     const outboundMessagesRepo = makeOutboundRepo();
 
@@ -94,6 +95,12 @@ describe("sendMessage — classificação de erro", () => {
 
     expect(outboundMessagesRepo.markFailed).toHaveBeenCalledTimes(1);
     expect(outboundMessagesRepo.markSent).toHaveBeenCalledTimes(0);
+
+    // Body da Z-API preservado em outbound_messages.error — diagnóstico operacional.
+    const markFailedCall = (outboundMessagesRepo.markFailed as unknown as ReturnType<typeof mock>)
+      .mock.calls[0]?.[1] as { status?: number; body?: unknown };
+    expect(markFailedCall.status).toBe(400);
+    expect(markFailedCall.body).toEqual(zapiBody);
   });
 
   it("timeout Z-API → propaga retryable, sem markFailed", async () => {

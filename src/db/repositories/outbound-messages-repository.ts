@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import {
   type NewOutboundMessage,
@@ -35,11 +35,21 @@ export class OutboundMessagesRepository {
     return row ?? null;
   }
 
+  // task_id é vínculo de FK — sempre grava. A transição para `queued` só dispara
+  // se o status ainda for `pending` (caso o worker tenha drenado a fila e movido
+  // para `sending` antes deste UPDATE, o status corrente é preservado).
+  // Ver convenção "UPDATEs condicionais a status" em CLAUDE.md e o débito em
+  // docs/follow-ups/setTaskId-transactional-fix.md (refactor proposto).
   async setTaskId(id: string, taskId: string): Promise<void> {
     await this.db
       .update(outboundMessages)
-      .set({ taskId, status: "queued", queuedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(outboundMessages.id, id), eq(outboundMessages.status, "pending")));
+      .set({
+        taskId,
+        status: sql`CASE WHEN ${outboundMessages.status} = 'pending' THEN 'queued'::outbound_message_status ELSE ${outboundMessages.status} END`,
+        queuedAt: sql`COALESCE(${outboundMessages.queuedAt}, NOW())`,
+        updatedAt: new Date(),
+      })
+      .where(eq(outboundMessages.id, id));
   }
 
   // Incrementa attempt e marca como sending. Aceita partir de pending/queued
@@ -73,14 +83,25 @@ export class OutboundMessagesRepository {
       .where(eq(outboundMessages.id, id));
   }
 
+  // `WHERE status NOT IN ('failed', 'sent')` — single-writer principle: o primeiro
+  // a marcar terminal vence; segundas chamadas (ex.: onTerminalFailure após a
+  // action já ter marcado em 4xx) viram no-op em vez de sobrescrever contexto rico.
   async markFailed(
     id: string,
-    error: { message: string; name?: string; stack?: string }
+    error: {
+      message: string;
+      name?: string;
+      stack?: string;
+      status?: number;
+      body?: unknown;
+    }
   ): Promise<void> {
     await this.db
       .update(outboundMessages)
       .set({ status: "failed", error, failedAt: new Date(), updatedAt: new Date() })
-      .where(eq(outboundMessages.id, id));
+      .where(
+        and(eq(outboundMessages.id, id), notInArray(outboundMessages.status, ["failed", "sent"]))
+      );
   }
 
   async markDropped(id: string, reason: string): Promise<void> {

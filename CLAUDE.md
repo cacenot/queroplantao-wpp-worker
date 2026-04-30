@@ -14,11 +14,15 @@ Regras e convenções para sessões de IA neste repositório. Para **o que** o c
 
 ### Best-effort side effects → `warnOnFail`
 
-Chamadas que não devem abortar o fluxo principal (atualizar status, emitir métrica) usam o helper:
+Chamadas que não devem abortar o fluxo principal (atualizar status, emitir métrica) usam o helper de [src/lib/log-helpers.ts](src/lib/log-helpers.ts):
 
 ```ts
+import { warnOnFail } from "src/lib/log-helpers.ts";
+
 await taskService.markSucceeded(id).catch(warnOnFail(log, "Falha ao marcar succeeded"));
 ```
+
+Quando o callsite quer contexto extra (ex.: `outboundMessageId`), use `logger.child({ ... })` antes do `.catch` em vez de inflar o helper.
 
 Silenciar erros com `.catch(() => {})` só se for genuinamente irrelevante — e com comentário explicando.
 
@@ -44,6 +48,31 @@ Publish em AMQP que precisa de requeue em caso de broker down já tem helper em 
 ### Dispatch por tipo → discriminated union + switch exaustivo
 
 Jobs, webhooks e rotas são discriminated unions Zod. O switch no handler delega para a action. Type narrowing do TS garante exaustividade — não use mapas `Record<type, fn>` a menos que precise de extensão dinâmica.
+
+### UPDATEs condicionais a status
+
+Filtros por `status` no `WHERE` valem para **transições de estado** (`pending → queued`, `queued → sending`, etc.) — protegem contra escrita em estado terminal e idempotência de retries.
+
+Mas **escritas de dado/FK** (linkar `task_id`, gravar `external_message_id`, preencher `idempotency_key`) **não devem** ser condicionadas a status: o dado existe independente do estado, e gating em status restritivo cria race condition silenciosa quando outro caminho transiciona o status entre o `SELECT` e o `UPDATE`. Resultado típico: o dado nunca é gravado e ninguém percebe.
+
+Quando a mesma operação precisa gravar dado + transicionar status, faça o status condicional **dentro** do SET — não no WHERE:
+
+```ts
+// ruim — UPDATE de FK + status no mesmo WHERE filtra
+.set({ taskId, status: "queued", queuedAt: new Date() })
+.where(and(eq(id, $id), eq(status, "pending")))  // ← se status mudou, taskId perdido
+
+// bom — task_id sempre grava; status só transiciona se ainda for o de origem
+.set({
+  taskId,
+  status: sql`CASE WHEN ${status} = 'pending' THEN 'queued' ELSE ${status} END`,
+  queuedAt: sql`COALESCE(${queuedAt}, NOW())`,
+  updatedAt: new Date(),
+})
+.where(eq(id, $id))
+```
+
+Para escrita de dado pura (sem transição), `WHERE column IS NULL` é o filtro de idempotência aceitável (não escreve por cima de valor já gravado).
 
 ## Validação
 

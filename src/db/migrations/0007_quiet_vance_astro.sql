@@ -9,7 +9,6 @@ CREATE TABLE "outbound_messages" (
 	"provider_instance_id" uuid,
 	"target_kind" "outbound_message_target_kind" NOT NULL,
 	"target_external_id" text NOT NULL,
-	"target_phone_e164" text,
 	"messaging_group_id" uuid,
 	"content_kind" "outbound_message_content_kind" NOT NULL,
 	"content" jsonb NOT NULL,

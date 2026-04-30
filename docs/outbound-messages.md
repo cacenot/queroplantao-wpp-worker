@@ -77,7 +77,7 @@ O switch por `content.kind` está em [src/actions/whatsapp/send-message.ts](../s
 | `group` | groupId no formato do provider (`120363...@g.us`) | passa direto no campo `phone` da Z-API (campo polimórfico) |
 | `contact` | E.164 (ex.: `+5547997490248`) | normalizado pelo service via `toE164` ([src/lib/phone.ts](../src/lib/phone.ts)). Z-API recebe digits puros via `toZapiDigits` (só dentro do `ZApiClient`, conforme regra do CLAUDE.md). |
 
-Quando `target.kind === "contact"`, o service preenche `target_phone_e164` na row de outbound (redundante com `target_external_id`, mas facilita queries por phone nos dashboards). Para grupos, `target_phone_e164` fica `NULL`.
+`target_external_id` carrega o E.164 quando `target_kind=contact` e o groupId quando `target_kind=group` — queries "por phone" usam `WHERE target_external_id = $phone AND target_kind = 'contact'` (índice `(target_external_id, created_at)` cobre).
 
 Quando `target.kind === "group"`, o service tenta resolver `messaging_group_id` via `messagingGroupsRepo.findByExternalId(externalId, protocol)`. Se o grupo não estiver cadastrado, segue com `NULL` — não bloqueia o envio.
 
@@ -100,7 +100,7 @@ Schema completo em [src/db/schema/outbound-messages.ts](../src/db/schema/outboun
 |---|---|
 | `id` | UUID PK — referenciado no payload do job |
 | `protocol`, `provider_kind`, `provider_instance_id` | qual instância enviou |
-| `target_kind`, `target_external_id`, `target_phone_e164` | destino |
+| `target_kind`, `target_external_id` | destino |
 | `messaging_group_id` | FK → `messaging_groups` (nullable) |
 | `content_kind`, `content` (jsonb) | payload completo do envio |
 | `external_message_id` | ID retornado pela Z-API (`messageId`/`zaapId`/`id`) |

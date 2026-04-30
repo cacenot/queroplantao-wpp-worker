@@ -52,10 +52,10 @@ export const outboundMessages = pgTable(
       { onDelete: "set null" }
     ),
     targetKind: outboundMessageTargetKindEnum("target_kind").notNull(),
-    // groupId em group; phone E.164 em contact.
+    // groupId em group; phone E.164 em contact. Indexado em (target_external_id, created_at)
+    // — queries "histórico por destino" filtram aqui (e por target_kind quando precisam
+    // distinguir grupo de contato).
     targetExternalId: text("target_external_id").notNull(),
-    // Redundante quando target.kind=contact — facilita queries por phone.
-    targetPhoneE164: text("target_phone_e164"),
     messagingGroupId: uuid("messaging_group_id").references(() => messagingGroups.id, {
       onDelete: "set null",
     }),
@@ -65,7 +65,15 @@ export const outboundMessages = pgTable(
     externalMessageId: text("external_message_id"),
     status: outboundMessageStatusEnum("status").notNull().default("pending"),
     attempt: integer("attempt").notNull().default(0),
-    error: jsonb("error").$type<{ message: string; name?: string; stack?: string } | null>(),
+    // `status` e `body` carregam contexto rico quando o erro vem do `ZApiError`
+    // (resposta HTTP da Z-API). Para outros erros, ficam undefined.
+    error: jsonb("error").$type<{
+      message: string;
+      name?: string;
+      stack?: string;
+      status?: number;
+      body?: unknown;
+    } | null>(),
     taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
     idempotencyKey: text("idempotency_key"),
     // Reservado para bulk send (ainda sem tabela de batches; sem FK).

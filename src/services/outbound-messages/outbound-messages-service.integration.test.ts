@@ -108,7 +108,6 @@ describe.skipIf(!INTEGRATION)("OutboundMessagesService (integration)", () => {
         status: string;
         target_kind: string;
         target_external_id: string;
-        target_phone_e164: string | null;
         content_kind: string;
         task_id: string | null;
         provider_instance_id: string;
@@ -118,7 +117,6 @@ describe.skipIf(!INTEGRATION)("OutboundMessagesService (integration)", () => {
     expect(outbound?.status).toBe("queued");
     expect(outbound?.target_kind).toBe("contact");
     expect(outbound?.target_external_id).toBe(PHONE_E164);
-    expect(outbound?.target_phone_e164).toBe(PHONE_E164);
     expect(outbound?.content_kind).toBe("text");
     expect(outbound?.provider_instance_id).toBe(providerInstanceId);
     expect(outbound?.task_id).toBe(outcome.taskId);
@@ -139,11 +137,11 @@ describe.skipIf(!INTEGRATION)("OutboundMessagesService (integration)", () => {
     });
 
     const [outbound] = await testDb.sql<
-      Array<{ messaging_group_id: string | null; target_phone_e164: string | null }>
+      Array<{ messaging_group_id: string | null; target_kind: string }>
     >`SELECT * FROM outbound_messages WHERE id = ${outcome.outboundMessageId}`;
 
     expect(outbound?.messaging_group_id).toBe(messagingGroupId);
-    expect(outbound?.target_phone_e164).toBeNull();
+    expect(outbound?.target_kind).toBe("group");
   });
 
   it("idempotencyKey duplicada não duplica row nem enfileira novo job", async () => {
@@ -203,5 +201,61 @@ describe.skipIf(!INTEGRATION)("OutboundMessagesService (integration)", () => {
       SELECT count(*)::text AS count FROM outbound_messages
     `;
     expect(rows[0]?.count).toBe("0");
+  });
+
+  it("provider instance inativa (is_enabled=false) lança ProviderInstanceNotActiveError", async () => {
+    await testDb.sql`
+      UPDATE messaging_provider_instances
+      SET is_enabled = false
+      WHERE id = ${providerInstanceId}
+    `;
+
+    await expect(
+      service.send({
+        providerInstanceId,
+        target: { kind: "contact", phone: PHONE_RAW },
+        content: { kind: "text", message: "olá" },
+      })
+    ).rejects.toThrow(/inativa/);
+
+    const rows = await testDb.sql<Array<{ count: string }>>`
+      SELECT count(*)::text AS count FROM outbound_messages
+    `;
+    expect(rows[0]?.count).toBe("0");
+  });
+
+  it("markFailed single-writer: segunda chamada não sobrescreve quando já em failed", async () => {
+    // Cria row direto (bypass do enqueue), marca como failed com contexto rico,
+    // depois tenta marcar de novo com contexto pobre — primeiro write deve vencer.
+    const repo = new OutboundMessagesRepository(testDb.db);
+    const row = await repo.create({
+      protocol: "whatsapp",
+      providerKind: "whatsapp_zapi",
+      providerInstanceId,
+      targetKind: "contact",
+      targetExternalId: PHONE_E164,
+      contentKind: "text",
+      content: { kind: "text", message: "olá" },
+      status: "sending",
+      attempt: 1,
+    });
+
+    await repo.markFailed(row.id, {
+      message: "Z-API rejected",
+      name: "ZApiError",
+      status: 400,
+      body: { error: "Phone number doesn't exist." },
+    });
+
+    await repo.markFailed(row.id, {
+      message: "wrapper sem body",
+      name: "NonRetryableError",
+    });
+
+    const [stored] = await testDb.sql<Array<{ error: { name: string; status: number | null } }>>`
+      SELECT error FROM outbound_messages WHERE id = ${row.id}
+    `;
+    expect(stored?.error.name).toBe("ZApiError");
+    expect(stored?.error.status).toBe(400);
   });
 });

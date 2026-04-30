@@ -118,6 +118,29 @@ export class MessagingProviderInstanceRepository {
     };
   }
 
+  /**
+   * Variante de `findById` que considera só instâncias ativas (`is_enabled=true`
+   * e não arquivadas). Retorna o discriminated union pra que o caller possa
+   * lançar erros distintos para "não encontrada" vs "encontrada mas inativa".
+   *
+   * Reutiliza `findById` para evitar duplicar a query — performance é equivalente
+   * e a lógica de discriminação fica explícita aqui.
+   */
+  async findActiveById(
+    id: string
+  ): Promise<
+    | { kind: "active"; instance: InstanceWithZApi }
+    | { kind: "not_found" }
+    | { kind: "not_active"; instance: InstanceWithZApi }
+  > {
+    const instance = await this.findById(id);
+    if (!instance) return { kind: "not_found" };
+    if (!instance.base.isEnabled || instance.base.archivedAt !== null) {
+      return { kind: "not_active", instance };
+    }
+    return { kind: "active", instance };
+  }
+
   async list(
     filters: InstanceFilters,
     pagination: Pagination

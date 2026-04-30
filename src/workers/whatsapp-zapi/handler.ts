@@ -8,7 +8,9 @@ import type { GatewayRegistry } from "../../gateways/gateway-registry.ts";
 import type { WhatsAppExecutor, WhatsAppProvider } from "../../gateways/whatsapp/types.ts";
 import type { JobSchema } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
+import { warnOnFail } from "../../lib/log-helpers.ts";
 import { logger } from "../../lib/logger.ts";
+import { normalizeOutboundError } from "../../services/outbound-messages/error.ts";
 
 export type ZapiExecuteDeps = {
   whatsappGatewayRegistry: GatewayRegistry<WhatsAppProvider>;
@@ -63,19 +65,17 @@ export function createZapiExecuteJob(deps: ZapiExecuteDeps) {
  * Sincroniza `outbound_messages.status = failed` quando um job de envio vai
  * para a DLQ (NonRetryable ou retries esgotados). Espelha o estado terminal
  * de `tasks` na tabela de observabilidade. Demais tipos de job são ignorados.
+ *
+ * O `markFailed` no repositório filtra `status NOT IN ('failed','sent')` —
+ * single-writer principle. Quando a action já marcou em 4xx (com `status` e
+ * `body` da Z-API), este UPDATE vira no-op e o contexto rico é preservado.
  */
 export function createZapiTerminalFailureHandler(repo: OutboundMessagesRepository) {
   return async function onTerminalFailure(job: JobSchema, err: unknown): Promise<void> {
     if (job.type !== "whatsapp.send_message") return;
-    const error =
-      err instanceof Error
-        ? { message: err.message, name: err.name, stack: err.stack }
-        : { message: String(err) };
-    await repo.markFailed(job.payload.outboundMessageId, error).catch((repoErr: unknown) => {
-      logger.warn(
-        { err: repoErr, outboundMessageId: job.payload.outboundMessageId },
-        "Falha ao sincronizar outbound como failed em DLQ"
-      );
-    });
+    const log = logger.child({ outboundMessageId: job.payload.outboundMessageId });
+    await repo
+      .markFailed(job.payload.outboundMessageId, normalizeOutboundError(err))
+      .catch(warnOnFail(log, "Falha ao sincronizar outbound como failed em DLQ"));
   };
 }

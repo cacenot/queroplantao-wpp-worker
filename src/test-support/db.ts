@@ -294,7 +294,6 @@ export async function createTestDb(): Promise<{
       "provider_instance_id" uuid REFERENCES "${schemaName}"."messaging_provider_instances"("id") ON DELETE SET NULL,
       "target_kind" "${schemaName}"."outbound_message_target_kind" NOT NULL,
       "target_external_id" text NOT NULL,
-      "target_phone_e164" text,
       "messaging_group_id" uuid REFERENCES "${schemaName}"."messaging_groups"("id") ON DELETE SET NULL,
       "content_kind" "${schemaName}"."outbound_message_content_kind" NOT NULL,
       "content" jsonb NOT NULL,

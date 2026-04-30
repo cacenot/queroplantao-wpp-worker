@@ -1430,12 +1430,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "target_phone_e164": {
-          "name": "target_phone_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "messaging_group_id": {
           "name": "messaging_group_id",
           "type": "uuid",

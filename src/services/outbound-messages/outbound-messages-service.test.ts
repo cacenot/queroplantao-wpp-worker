@@ -5,7 +5,11 @@ import type { OutboundMessagesRepository } from "../../db/repositories/outbound-
 import type { OutboundMessage } from "../../db/schema/outbound-messages.ts";
 import type { TaskService } from "../task/index.ts";
 import { OutboundMessagesService } from "./outbound-messages-service.ts";
-import { InvalidPhoneError, ProviderInstanceNotFoundError } from "./types.ts";
+import {
+  InvalidPhoneError,
+  ProviderInstanceNotActiveError,
+  ProviderInstanceNotFoundError,
+} from "./types.ts";
 
 const PROVIDER_INSTANCE_ID = "11111111-1111-1111-1111-111111111111";
 const OUTBOUND_ID = "22222222-2222-2222-2222-222222222222";
@@ -34,20 +38,31 @@ function makeMessagingGroupsRepo(group: { id: string } | null = null) {
   } as unknown as MessagingGroupsRepository;
 }
 
-function makeProviderInstanceRepo(found = true) {
+type ProviderInstanceState = "active" | "not_found" | "not_active";
+
+function makeProviderInstanceRepo(state: ProviderInstanceState = "active") {
+  const instance =
+    state === "not_found"
+      ? null
+      : {
+          base: {
+            id: PROVIDER_INSTANCE_ID,
+            protocol: "whatsapp",
+            providerKind: "whatsapp_zapi",
+            isEnabled: state === "active",
+            archivedAt: null,
+          },
+          zapi: null,
+        };
+
   return {
-    findById: mock(() =>
+    findActiveById: mock(() =>
       Promise.resolve(
-        found
-          ? {
-              base: {
-                id: PROVIDER_INSTANCE_ID,
-                protocol: "whatsapp",
-                providerKind: "whatsapp_zapi",
-              },
-              zapi: null,
-            }
-          : null
+        state === "not_found"
+          ? { kind: "not_found" as const }
+          : state === "not_active"
+            ? { kind: "not_active" as const, instance }
+            : { kind: "active" as const, instance }
       )
     ),
   } as unknown as MessagingProviderInstanceRepository;
@@ -86,11 +101,10 @@ describe("OutboundMessagesService.send — happy path", () => {
     expect(taskService.enqueue).toHaveBeenCalledTimes(1);
     expect(outboundMessagesRepo.setTaskId).toHaveBeenCalledTimes(1);
 
-    // Phone normalizado para E.164 e replicado no targetPhoneE164
+    // Phone normalizado para E.164 — vai para target_external_id (target_kind=contact).
     const createCall = (outboundMessagesRepo.create as unknown as ReturnType<typeof mock>).mock
-      .calls[0]?.[0] as { targetExternalId: string; targetPhoneE164: string | null };
+      .calls[0]?.[0] as { targetExternalId: string };
     expect(createCall.targetExternalId).toBe("+5547997490248");
-    expect(createCall.targetPhoneE164).toBe("+5547997490248");
   });
 
   it("grupo: resolve messagingGroupId quando o grupo está cadastrado", async () => {
@@ -113,12 +127,10 @@ describe("OutboundMessagesService.send — happy path", () => {
       .calls[0]?.[0] as {
       targetKind: string;
       targetExternalId: string;
-      targetPhoneE164: string | null;
       messagingGroupId: string | null;
     };
     expect(createCall.targetKind).toBe("group");
     expect(createCall.targetExternalId).toBe("120363111111111111@g.us");
-    expect(createCall.targetPhoneE164).toBeNull();
     expect(createCall.messagingGroupId).toBe(GROUP_INTERNAL_ID);
   });
 
@@ -207,7 +219,7 @@ describe("OutboundMessagesService.send — erros", () => {
     const service = new OutboundMessagesService({
       outboundMessagesRepo,
       messagingGroupsRepo: makeMessagingGroupsRepo(),
-      providerInstanceRepo: makeProviderInstanceRepo(false),
+      providerInstanceRepo: makeProviderInstanceRepo("not_found"),
       taskService: makeTaskService(),
     });
 
@@ -220,5 +232,96 @@ describe("OutboundMessagesService.send — erros", () => {
     ).rejects.toBeInstanceOf(ProviderInstanceNotFoundError);
 
     expect(outboundMessagesRepo.create).toHaveBeenCalledTimes(0);
+  });
+
+  it("provider instance inativa: lança ProviderInstanceNotActiveError", async () => {
+    const outboundMessagesRepo = makeOutboundRepo();
+    const service = new OutboundMessagesService({
+      outboundMessagesRepo,
+      messagingGroupsRepo: makeMessagingGroupsRepo(),
+      providerInstanceRepo: makeProviderInstanceRepo("not_active"),
+      taskService: makeTaskService(),
+    });
+
+    await expect(
+      service.send({
+        providerInstanceId: PROVIDER_INSTANCE_ID,
+        target: { kind: "contact", phone: "+5547997490248" },
+        content: { kind: "text", message: "olá" },
+      })
+    ).rejects.toBeInstanceOf(ProviderInstanceNotActiveError);
+
+    expect(outboundMessagesRepo.create).toHaveBeenCalledTimes(0);
+  });
+
+  it("race em idempotency_key: 23505 no INSERT vira deduplicated via refetch", async () => {
+    // Cenário: dois callers concorrentes com a mesma idempotencyKey. Ambos
+    // passam pelo findByIdempotencyKey vendo `null`, ambos chegam no INSERT,
+    // o segundo bate no índice único parcial.
+    const existing = {
+      id: "existing-id",
+      taskId: "existing-task",
+    } as unknown as OutboundMessage;
+    let firstFindCall = true;
+    const uniqueViolation = Object.assign(new Error("duplicate key"), { code: "23505" });
+
+    const outboundMessagesRepo = makeOutboundRepo({
+      findByIdempotencyKey: mock(() => {
+        // Primeira chamada (antes do INSERT) → null. Segunda (recovery) → row.
+        if (firstFindCall) {
+          firstFindCall = false;
+          return Promise.resolve(null);
+        }
+        return Promise.resolve(existing);
+      }) as unknown as OutboundMessagesRepository["findByIdempotencyKey"],
+      create: mock(() =>
+        Promise.reject(uniqueViolation)
+      ) as unknown as OutboundMessagesRepository["create"],
+    });
+    const taskService = makeTaskService();
+
+    const service = new OutboundMessagesService({
+      outboundMessagesRepo,
+      messagingGroupsRepo: makeMessagingGroupsRepo(),
+      providerInstanceRepo: makeProviderInstanceRepo(),
+      taskService,
+    });
+
+    const outcome = await service.send({
+      providerInstanceId: PROVIDER_INSTANCE_ID,
+      target: { kind: "contact", phone: "+5547997490248" },
+      content: { kind: "text", message: "olá" },
+      idempotencyKey: "race-key",
+    });
+
+    expect(outcome).toEqual({
+      outboundMessageId: "existing-id",
+      taskId: "existing-task",
+      status: "deduplicated",
+    });
+    expect(taskService.enqueue).toHaveBeenCalledTimes(0);
+  });
+
+  it("erro genérico no INSERT (não-23505) propaga", async () => {
+    const dbErr = Object.assign(new Error("connection lost"), { code: "08006" });
+    const outboundMessagesRepo = makeOutboundRepo({
+      create: mock(() => Promise.reject(dbErr)) as unknown as OutboundMessagesRepository["create"],
+    });
+
+    const service = new OutboundMessagesService({
+      outboundMessagesRepo,
+      messagingGroupsRepo: makeMessagingGroupsRepo(),
+      providerInstanceRepo: makeProviderInstanceRepo(),
+      taskService: makeTaskService(),
+    });
+
+    await expect(
+      service.send({
+        providerInstanceId: PROVIDER_INSTANCE_ID,
+        target: { kind: "contact", phone: "+5547997490248" },
+        content: { kind: "text", message: "olá" },
+        idempotencyKey: "key-x",
+      })
+    ).rejects.toBe(dbErr);
   });
 });

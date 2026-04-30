@@ -8,6 +8,7 @@ import { toE164 } from "../../lib/phone.ts";
 import type { TaskService } from "../task/index.ts";
 import {
   InvalidPhoneError,
+  ProviderInstanceNotActiveError,
   ProviderInstanceNotFoundError,
   type SendInput,
   type SendInputTarget,
@@ -25,7 +26,6 @@ type ResolvedTarget = {
   payloadTarget: SendMessagePayload["target"];
   targetKind: "group" | "contact";
   targetExternalId: string;
-  targetPhoneE164: string | null;
 };
 
 export class OutboundMessagesService {
@@ -37,25 +37,19 @@ export class OutboundMessagesService {
    * chamadas repetidas retornam a row original sem duplicar envio.
    */
   async send(input: SendInput): Promise<SendOutcome> {
-    if (input.idempotencyKey) {
-      const existing = await this.deps.outboundMessagesRepo.findByIdempotencyKey(
-        input.idempotencyKey
-      );
-      if (existing) {
-        return {
-          outboundMessageId: existing.id,
-          taskId: existing.taskId,
-          status: "deduplicated",
-        };
-      }
-    }
+    const dedup = await this.findDeduplicated(input.idempotencyKey);
+    if (dedup) return dedup;
 
     const target = resolveTarget(input.target);
 
-    const instance = await this.deps.providerInstanceRepo.findById(input.providerInstanceId);
-    if (!instance) {
+    const lookup = await this.deps.providerInstanceRepo.findActiveById(input.providerInstanceId);
+    if (lookup.kind === "not_found") {
       throw new ProviderInstanceNotFoundError(input.providerInstanceId);
     }
+    if (lookup.kind === "not_active") {
+      throw new ProviderInstanceNotActiveError(input.providerInstanceId);
+    }
+    const instance = lookup.instance;
 
     const messagingGroupId =
       target.targetKind === "group"
@@ -67,22 +61,33 @@ export class OutboundMessagesService {
           )?.id ?? null)
         : null;
 
-    const row = await this.deps.outboundMessagesRepo.create({
-      protocol: instance.base.protocol,
-      providerKind: instance.base.providerKind,
-      providerInstanceId: instance.base.id,
-      targetKind: target.targetKind,
-      targetExternalId: target.targetExternalId,
-      targetPhoneE164: target.targetPhoneE164,
-      messagingGroupId,
-      contentKind: input.content.kind,
-      content: input.content,
-      status: "pending",
-      idempotencyKey: input.idempotencyKey,
-      batchId: input.batchId,
-      scheduledFor: input.scheduledFor,
-      requestedBy: input.requestedBy,
-    } satisfies NewOutboundMessage);
+    let row: Awaited<ReturnType<OutboundMessagesRepository["create"]>>;
+    try {
+      row = await this.deps.outboundMessagesRepo.create({
+        protocol: instance.base.protocol,
+        providerKind: instance.base.providerKind,
+        providerInstanceId: instance.base.id,
+        targetKind: target.targetKind,
+        targetExternalId: target.targetExternalId,
+        messagingGroupId,
+        contentKind: input.content.kind,
+        content: input.content,
+        status: "pending",
+        idempotencyKey: input.idempotencyKey,
+        batchId: input.batchId,
+        scheduledFor: input.scheduledFor,
+        requestedBy: input.requestedBy,
+      } satisfies NewOutboundMessage);
+    } catch (err) {
+      // Race em idempotency_key: outro caller passou pelo findByIdempotencyKey
+      // ao mesmo tempo, ambos chegaram no INSERT, este é o segundo. Refetch
+      // garante que retornemos a row original sem propagar 23505 ao caller.
+      if (input.idempotencyKey && isUniqueViolation(err)) {
+        const dedupAfterInsert = await this.findDeduplicated(input.idempotencyKey);
+        if (dedupAfterInsert) return dedupAfterInsert;
+      }
+      throw err;
+    }
 
     const job = {
       id: randomUUID(),
@@ -101,6 +106,28 @@ export class OutboundMessagesService {
 
     return { outboundMessageId: row.id, taskId: job.id, status: "queued" };
   }
+
+  private async findDeduplicated(idempotencyKey: string | undefined): Promise<SendOutcome | null> {
+    if (!idempotencyKey) return null;
+    const existing = await this.deps.outboundMessagesRepo.findByIdempotencyKey(idempotencyKey);
+    if (!existing) return null;
+    return {
+      outboundMessageId: existing.id,
+      taskId: existing.taskId,
+      status: "deduplicated",
+    };
+  }
+}
+
+// Postgres unique_violation. Aceita o erro como `unknown` porque o pg client
+// não exporta o tipo concreto e o stack pode passar por wrappers do Drizzle.
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "23505"
+  );
 }
 
 // E.164 só vale para targets de contato. Group externalId passa por sem
@@ -111,7 +138,6 @@ function resolveTarget(target: SendInputTarget): ResolvedTarget {
       payloadTarget: { kind: "group", externalId: target.externalId },
       targetKind: "group",
       targetExternalId: target.externalId,
-      targetPhoneE164: null,
     };
   }
 
@@ -123,7 +149,6 @@ function resolveTarget(target: SendInputTarget): ResolvedTarget {
     payloadTarget: { kind: "contact", externalId: e164 },
     targetKind: "contact",
     targetExternalId: e164,
-    targetPhoneE164: e164,
   };
 }
 

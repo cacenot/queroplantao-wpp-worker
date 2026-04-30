@@ -6,6 +6,7 @@ import { z } from "zod";
 import { dlqForJob, priorityForJob, retryQueueForJob } from "../../jobs/routing.ts";
 import { type JobSchema, jobSchema } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
+import { warnOnFail } from "../../lib/log-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 import type { TaskService } from "../../services/task/index.ts";
 
@@ -37,10 +38,6 @@ type PublishDeps = {
   taskService: TaskService;
   jobLog: JobLogger;
 };
-
-function warnOnFail(log: JobLogger, message: string) {
-  return (err: unknown) => log.warn({ err }, message);
-}
 
 // Retorna { attempt } quando o job deve executar (claim no DB ou fallback sem
 // persistência se o DB cair); null quando a task já está terminal/inexistente

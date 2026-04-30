@@ -31,3 +31,10 @@ export class ProviderInstanceNotFoundError extends Error {
     super(`Provider instance não encontrada: ${providerInstanceId}`);
   }
 }
+
+export class ProviderInstanceNotActiveError extends Error {
+  override readonly name = "ProviderInstanceNotActiveError";
+  constructor(public readonly providerInstanceId: string) {
+    super(`Provider instance está inativa (is_enabled=false ou arquivada): ${providerInstanceId}`);
+  }
+}

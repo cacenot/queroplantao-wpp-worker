@@ -7,7 +7,9 @@ import type {
 import { ZApiError, ZApiTimeoutError } from "../../gateways/whatsapp/zapi/client.ts";
 import type { SendMessagePayload } from "../../jobs/schemas.ts";
 import { NonRetryableError } from "../../lib/errors.ts";
+import { warnOnFail } from "../../lib/log-helpers.ts";
 import { logger } from "../../lib/logger.ts";
+import { normalizeOutboundError } from "../../services/outbound-messages/error.ts";
 
 type SendMessageDeps = {
   executor: WhatsAppExecutor;
@@ -30,14 +32,11 @@ export async function sendMessage(
   payload: SendMessagePayload,
   deps: SendMessageDeps
 ): Promise<void> {
+  const log = logger.child({ outboundMessageId: payload.outboundMessageId });
+
   await deps.outboundMessagesRepo
     .markSending(payload.outboundMessageId)
-    .catch((err: unknown) =>
-      logger.warn(
-        { err, outboundMessageId: payload.outboundMessageId },
-        "Falha ao marcar outbound como sending — segue envio"
-      )
-    );
+    .catch(warnOnFail(log, "Falha ao marcar outbound como sending — segue envio"));
 
   let result: SendResult;
   try {
@@ -50,13 +49,8 @@ export async function sendMessage(
     // não conectada). Marca terminal e DLQ direto.
     if (err instanceof ZApiError && err.status >= 400 && err.status < 500) {
       await deps.outboundMessagesRepo
-        .markFailed(payload.outboundMessageId, normalizeError(err))
-        .catch((repoErr: unknown) =>
-          logger.warn(
-            { err: repoErr, outboundMessageId: payload.outboundMessageId },
-            "Falha ao marcar outbound como failed após 4xx Z-API"
-          )
-        );
+        .markFailed(payload.outboundMessageId, normalizeOutboundError(err))
+        .catch(warnOnFail(log, "Falha ao marcar outbound como failed após 4xx Z-API"));
       throw new NonRetryableError(
         `Z-API recusou envio (HTTP ${err.status}) para outboundMessageId=${payload.outboundMessageId}`,
         err
@@ -68,16 +62,7 @@ export async function sendMessage(
 
   await deps.outboundMessagesRepo
     .markSent(payload.outboundMessageId, result.externalMessageId)
-    .catch((err: unknown) =>
-      logger.warn(
-        {
-          err,
-          outboundMessageId: payload.outboundMessageId,
-          externalMessageId: result.externalMessageId,
-        },
-        "Falha ao marcar outbound como sent — envio concluído no provider"
-      )
-    );
+    .catch(warnOnFail(log, "Falha ao marcar outbound como sent — envio concluído no provider"));
 }
 
 function dispatchSend(
@@ -126,11 +111,4 @@ function dispatchSend(
         footer: content.footer,
       });
   }
-}
-
-function normalizeError(err: unknown): { message: string; name?: string; stack?: string } {
-  if (err instanceof Error) {
-    return { message: err.message, name: err.name, stack: err.stack };
-  }
-  return { message: String(err) };
 }
